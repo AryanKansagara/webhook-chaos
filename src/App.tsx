@@ -1,145 +1,86 @@
-import { useState } from 'react'
-import { Shell } from './Shell.tsx'
-import { ChaosTab } from './ChaosTab.tsx'
-import { diagnose, type Diagnosis } from './diagnose.ts'
+import { RouteApp } from './router.tsx'
+import { Landing, MockFrame, MockList } from './Landing.tsx'
+import Tool from './Tool.tsx'
 
-type Tab = 'chaos' | 'debugger'
-
-export default function App() {
-  const [tab, setTab] = useState<Tab>('chaos')
-  const [autorun, setAutorun] = useState(0)
-
+function ProductLanding() {
   return (
-    <Shell name="Webhook Chaos" tagline="Stripe webhook reliability tester" icon="bolt">
-      <section className="hero">
-        <h1>Find out if your Stripe webhook will survive production</h1>
-        <p>
-          Chaos tests fire signed, duplicated, reordered, forged, and stale events at a demo endpoint or your own HTTPS
-          URL and score how the handler responds. The signature debugger runs entirely in your browser when a verify
-          call fails and you need to know whether the body, header, or secret is wrong.
-        </p>
-        <div className="row" style={{ marginTop: 16 }}>
-          <button
-            className="btn"
-            onClick={() => {
-              setTab('chaos')
-              setAutorun((n) => n + 1)
-            }}
-          >
-            Run naive demo
-          </button>
-          <button className="btn ghost" onClick={() => setTab('debugger')}>
-            Open signature debugger
-          </button>
-        </div>
-      </section>
-
-      <div className="tabs" role="tablist" aria-label="Tools">
-        <button role="tab" aria-selected={tab === 'chaos'} onClick={() => setTab('chaos')}>
-          Chaos tests
-        </button>
-        <button role="tab" aria-selected={tab === 'debugger'} onClick={() => setTab('debugger')}>
-          Signature debugger
-        </button>
-      </div>
-
-      {tab === 'chaos' ? <ChaosTab autorun={autorun} /> : <DebuggerTab />}
-    </Shell>
+    <Landing
+      name="Webhook Chaos"
+      icon="bolt"
+      tagline="Stripe webhook reliability tester"
+      headline="Prove your Stripe webhook before production does"
+      support="Run chaos deliveries (duplicates, out-of-order, bad signatures, stale timestamps) against demo handlers or your HTTPS endpoint. Debug failing signatures in-browser."
+      audience="For teams shipping Stripe billing webhooks."
+      features={[
+        {
+          icon: 'speed',
+          title: 'Chaos score',
+          body: 'Get a 0–100 reliability score from how your handler deals with messy Stripe deliveries.',
+        },
+        {
+          icon: 'link',
+          title: 'Demo vs your URL',
+          body: 'Try built-in naive/idempotent demos, or point chaos at your own HTTPS endpoint.',
+        },
+        {
+          icon: 'bug_report',
+          title: 'Signature debugger',
+          body: 'Paste body, Stripe-Signature, and secrets to diagnose verify failures in-browser.',
+        },
+      ]}
+      slides={[
+        {
+          title: 'Chaos score',
+          caption: 'A weak handler fails replay and signature checks — scored 42/100.',
+          preview: (
+            <MockFrame title="Chaos score">
+              <div className="mock-score tone-bad">42/100</div>
+              <MockList
+                items={[
+                  { badge: 'Bad', text: 'Accepted forged signature', tone: 'bad' },
+                  { badge: 'Bad', text: 'Double-processed duplicate event', tone: 'bad' },
+                  { badge: 'Warn', text: 'Ignored stale timestamp', tone: 'warn' },
+                ]}
+              />
+            </MockFrame>
+          ),
+        },
+        {
+          title: 'Check results',
+          caption: 'Each chaos check shows pass/fail with the delivery pattern that broke it.',
+          preview: (
+            <MockFrame title="Check results">
+              <MockList
+                items={[
+                  { badge: 'Fail', text: 'Duplicate delivery — processed twice', tone: 'bad' },
+                  { badge: 'Fail', text: 'Out-of-order events — wrong state', tone: 'bad' },
+                  { badge: 'Pass', text: 'Valid signed event accepted', tone: 'good' },
+                  { badge: 'Fail', text: 'Bad signature still 200 OK', tone: 'bad' },
+                ]}
+              />
+            </MockFrame>
+          ),
+        },
+        {
+          title: 'Signature debugger',
+          caption: 'Findings tell you whether the body, header, or secret is wrong.',
+          preview: (
+            <MockFrame title="Signature debugger">
+              <MockList
+                items={[
+                  { badge: 'Bad', text: 'v1 signature does not match any secret', tone: 'bad' },
+                  { badge: 'Warn', text: 'Timestamp skew > 5 minutes', tone: 'warn' },
+                  { badge: 'Info', text: 'Body whitespace differs from signed bytes', tone: 'info' },
+                ]}
+              />
+            </MockFrame>
+          ),
+        },
+      ]}
+    />
   )
 }
 
-function DebuggerTab() {
-  const [body, setBody] = useState('')
-  const [header, setHeader] = useState('')
-  const [secrets, setSecrets] = useState('')
-  const [running, setRunning] = useState(false)
-  const [result, setResult] = useState<Diagnosis | null>(null)
-
-  async function run() {
-    setRunning(true)
-    try {
-      setResult(await diagnose({ body, header, secrets, now: Math.floor(Date.now() / 1000) }))
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  return (
-    <section className="panel">
-      <h2>Signature debugger</h2>
-      <p className="muted small" style={{ marginTop: 0 }}>
-        Paste the raw request body, the <code>Stripe-Signature</code> header, and your endpoint signing secret(s).
-        Diagnosis uses WebCrypto in this tab — nothing is sent to the server.
-      </p>
-
-      <div className="grid cols-2">
-        <label className="field" style={{ marginTop: 0 }}>
-          <span>Raw body</span>
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            spellCheck={false}
-            placeholder={'{\n  "id": "evt_…",\n  …\n}'}
-            aria-label="Raw webhook body"
-          />
-        </label>
-        <div className="stack">
-          <label className="field" style={{ marginTop: 0 }}>
-            <span>Stripe-Signature header</span>
-            <input
-              value={header}
-              onChange={(e) => setHeader(e.target.value)}
-              spellCheck={false}
-              autoComplete="off"
-              placeholder="t=1700000000,v1=5257a8…"
-              aria-label="Stripe-Signature header"
-            />
-          </label>
-          <label className="field">
-            <span>Signing secret(s)</span>
-            <textarea
-              value={secrets}
-              onChange={(e) => setSecrets(e.target.value)}
-              spellCheck={false}
-              autoComplete="off"
-              placeholder={'whsec_…\n(one per line while rotating)'}
-              style={{ minHeight: 120 }}
-              aria-label="Signing secrets"
-            />
-          </label>
-        </div>
-      </div>
-
-      <div className="row run-row">
-        <button className="btn" disabled={running} onClick={() => void run()}>
-          {running ? 'Diagnosing…' : 'Diagnose'}
-        </button>
-        {result && (
-          <span className={`badge ${result.match ? 'good' : 'bad'}`}>
-            {result.match ? 'Would verify' : 'Would reject'}
-          </span>
-        )}
-      </div>
-
-      {result && (
-        <div aria-live="polite">
-          {result.expected && (
-            <p className="muted small mono">
-              Expected v1 (secret #1): <code className="snippet">{result.expected}</code>
-              {result.parsed.t != null && <> · t={result.parsed.t}</>}
-            </p>
-          )}
-          {result.findings.map((f, i) => (
-            <div key={i} className={`finding ${f.level}`}>
-              <div className="row">
-                <span className={`badge ${f.level === 'info' ? 'info' : f.level}`}>{f.level}</span>
-                <strong>{f.title}</strong>
-              </div>
-              <p className="summary" style={{ margin: '6px 0 0' }}>{f.detail}</p>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  )
+export default function App() {
+  return <RouteApp landing={<ProductLanding />} tool={<Tool />} />
 }
