@@ -8,7 +8,7 @@ function ProductLanding() {
       name="Webhook Chaos"
       icon="bolt"
       tagline="Stripe webhook reliability tester"
-      headline="Prove your Stripe webhook before production does"
+      headline="Prove your Stripe webhook *before production does.*"
       support="Run chaos deliveries (duplicates, out-of-order, bad signatures, stale timestamps) against demo handlers or your HTTPS endpoint. Debug failing signatures in-browser."
       audience="For teams shipping Stripe billing webhooks."
       features={[

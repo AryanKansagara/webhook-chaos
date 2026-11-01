@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-brand="stripe" data-theme="brand">
+<html lang="en" data-brand="stripe" data-theme="brand" data-default-mode="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -8,22 +8,13 @@
       name="description"
       content="Chaos-test Stripe webhooks for duplicates, reordering, forged signatures, and stale timestamps. Debug failed signature verification in your browser."
     />
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23635bff'/><text x='16' y='22' text-anchor='middle' font-size='16' fill='white'>⚡</text></svg>" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23533afd'/><text x='16' y='22' text-anchor='middle' font-size='16' fill='white'>⚡</text></svg>" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Code+Pro:wght@400;500&display=swap" rel="stylesheet" />
     <script>
-      (function () {
-        var brand = 'stripe'
-        var themes = ['brand','expressive','vibrant','ocean','sunset','forest']
-        var theme = localStorage.getItem('wc:colorTheme')
-        if (themes.indexOf(theme) < 0) theme = 'brand'
-        var mode = localStorage.getItem('wc:themeMode')
-        if (mode !== 'light' && mode !== 'dark') mode = 'light'
-        document.documentElement.dataset.brand = brand
-        document.documentElement.dataset.theme = theme
-        document.documentElement.dataset.themeMode = mode
-      })()
+      var m = localStorage.getItem('themeMode')
+      document.documentElement.dataset.themeMode = m === 'light' || m === 'dark' ? m : 'light'
     </script>
   </head>
   <body>
