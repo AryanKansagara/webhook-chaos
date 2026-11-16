@@ -1,6 +1,7 @@
 // Stripe event building, signing and verification. Browser + Node safe (WebCrypto only).
 
-export const API_VERSION = '2026-10-28.endive'
+// Current version in Stripe's published OpenAPI spec (github.com/stripe/openapi), checked 2026-11-16.
+export const API_VERSION = '2026-09-30.endive'
 export const DEFAULT_TOLERANCE = 300 // seconds, same default as stripe-node
 
 export interface StripeEvent {
@@ -65,11 +66,13 @@ export interface ParsedHeader {
   v0: string[]
   unknown: string[]
   hasWhitespace: boolean
+  /** Debug metadata newer Stripe headers carry (read by stripe-node for its error messages). */
+  meta: { secret?: string; destination?: string; payload?: string }
 }
 
 /** Same rules as stripe-node: split on `,` then `=`; keep every v1; ignore other schemes. */
 export function parseSignatureHeader(header: string): ParsedHeader {
-  const out: ParsedHeader = { t: null, v1: [], v0: [], unknown: [], hasWhitespace: /\s/.test(header) }
+  const out: ParsedHeader = { t: null, v1: [], v0: [], unknown: [], hasWhitespace: /\s/.test(header), meta: {} }
   for (const item of header.split(',')) {
     const [rawKey, value = ''] = item.split('=')
     const key = rawKey.trim()
@@ -77,9 +80,20 @@ export function parseSignatureHeader(header: string): ParsedHeader {
     if (key === 't') out.t = /^\d+$/.test(v) ? Number(v) : null
     else if (key === 'v1') out.v1.push(v)
     else if (key === 'v0') out.v0.push(v)
-    else if (key) out.unknown.push(key)
+    else if (key === 'secret' || key === 'destination' || key === 'payload') {
+      // First value wins and over-long values are dropped, as in stripe-node's getSignatureDebugMetadata.
+      const full = item.slice(item.indexOf('=') + 1).trim()
+      const okPayload = key !== 'payload' || /^[0-9a-fA-F]{8}$/.test(full)
+      if (out.meta[key] === undefined && full && full.length <= 100 && okPayload) out.meta[key] = key === 'payload' ? full.toLowerCase() : full
+    } else if (key) out.unknown.push(key)
   }
   return out
+}
+
+/** Last 4 bytes of SHA-256(payload) as hex: the value of the header's `payload=` debug field. */
+export async function payloadHashTail(payload: string): Promise<string> {
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(payload)))
+  return Array.from(hash.slice(-4), (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 /** Constant-time for equal-length inputs. */
@@ -165,7 +179,7 @@ function subscriptionItems(subId: string, itemId: string, plan: Plan, created: n
           metadata: {},
           nickname: null,
           product: plan.product,
-          recurring: { interval: 'month', interval_count: 1, meter: null, trial_period_days: null, usage_type: 'licensed' },
+          recurring: { interval: 'month', interval_count: 1, meter: null, usage_type: 'licensed' },
           tax_behavior: 'unspecified',
           tiers_mode: null,
           transform_quantity: null,
@@ -196,6 +210,7 @@ function subscription(id: string, customer: string, itemId: string, created: num
     billing_cycle_anchor: created,
     billing_cycle_anchor_config: null,
     billing_mode: { flexible: null, type: 'classic' },
+    billing_schedules: [],
     billing_thresholds: null,
     cancel_at: null,
     cancel_at_period_end: false,
@@ -236,6 +251,29 @@ function subscription(id: string, customer: string, itemId: string, created: num
 }
 
 function invoice(id: string, customer: string, subId: string, created: number, amount: number, paid: boolean, reason: string) {
+  const periodStart = created - (reason === 'subscription_create' ? 0 : 30 * 86400)
+  const line = {
+    id: stripeId('il'),
+    object: 'line_item',
+    amount,
+    currency: 'usd',
+    description: reason === 'manual' ? 'Annual plan' : `1 × ${amount === 1500 ? 'Starter' : 'Pro'} (at $${(amount / 100).toFixed(2)} / month)`,
+    discount_amounts: [],
+    discountable: true,
+    discounts: [],
+    invoice: id,
+    livemode: false,
+    metadata: {},
+    parent: null,
+    period: { end: periodStart + 30 * 86400, start: periodStart },
+    pretax_credit_amounts: [],
+    pricing: { price_details: null, type: 'price_details', unit_amount_decimal: String(amount) },
+    quantity: 1,
+    quantity_decimal: '1',
+    subscription: subId,
+    subtotal: amount,
+    taxes: [],
+  }
   return {
     id,
     object: 'invoice',
@@ -245,6 +283,7 @@ function invoice(id: string, customer: string, subId: string, created: number, a
     amount_due: amount,
     amount_overpaid: 0,
     amount_paid: paid ? amount : 0,
+    amount_paid_off_stripe: 0,
     amount_remaining: paid ? 0 : amount,
     amount_shipping: 0,
     application: null,
@@ -281,7 +320,7 @@ function invoice(id: string, customer: string, subId: string, created: number, a
     issuer: { type: 'self' },
     last_finalization_error: null,
     latest_revision: null,
-    lines: { object: 'list', data: [], has_more: false, total_count: 1, url: `/v1/invoices/${id}/lines` },
+    lines: { object: 'list', data: [line], has_more: false, total_count: 1, url: `/v1/invoices/${id}/lines` },
     livemode: false,
     metadata: {},
     next_payment_attempt: paid ? null : created + 3 * 86400,
@@ -290,7 +329,7 @@ function invoice(id: string, customer: string, subId: string, created: number, a
     parent: { quote_details: null, subscription_details: { metadata: {}, subscription: subId }, type: 'subscription_details' },
     payment_settings: { default_mandate: null, payment_method_options: null, payment_method_types: null },
     period_end: created,
-    period_start: created - (reason === 'subscription_create' ? 0 : 30 * 86400),
+    period_start: periodStart,
     post_payment_credit_notes_amount: 0,
     pre_payment_credit_notes_amount: 0,
     receipt_number: null,
@@ -321,8 +360,10 @@ export interface Scenario {
   reorder: StripeEvent[]
   subA: string
   subB: string
-  /** Fresh events for the negative (should-be-rejected) probes. */
+  /** Fresh invoice.paid events for the negative (should-be-rejected) and rotation probes. */
   probe: () => StripeEvent
+  /** An authentic event of a type billing handlers rarely subscribe to on purpose. */
+  unhandled: () => StripeEvent
 }
 
 /** One customer, two subscriptions, consistent ids. Event `created` values are in the recent past. */
@@ -369,5 +410,30 @@ export function buildScenario(now: number): Scenario {
     const inv = stripeId('in')
     return makeEvent('invoice.paid', invoice(inv, customer, subA, now - 5, 99900, true, 'manual'), now - 5)
   }
-  return { customer, lifecycle, reorder, subA, subB, probe }
+  const unhandled = () =>
+    makeEvent('customer.updated', {
+      id: customer,
+      object: 'customer',
+      address: null,
+      balance: 0,
+      created: t0 - 86400,
+      currency: 'usd',
+      default_source: null,
+      delinquent: true,
+      description: null,
+      discount: null,
+      email: 'jenny.rosen@example.com',
+      invoice_prefix: 'ACME',
+      invoice_settings: { custom_fields: null, default_payment_method: null, footer: null, rendering_options: null },
+      livemode: false,
+      metadata: {},
+      name: 'Jenny Rosen',
+      next_invoice_sequence: 3,
+      phone: null,
+      preferred_locales: [],
+      shipping: null,
+      tax_exempt: 'none',
+      test_clock: null,
+    }, now - 4, { previous: { delinquent: false } })
+  return { customer, lifecycle, reorder, subA, subB, probe, unhandled }
 }

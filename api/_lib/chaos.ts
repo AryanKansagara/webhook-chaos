@@ -5,6 +5,8 @@ export type CheckId =
   | 'baseline'
   | 'duplicate'
   | 'out_of_order'
+  | 'rotated_secret'
+  | 'unknown_type'
   | 'bad_signature'
   | 'stale_timestamp'
   | 'tampered_body'
@@ -15,6 +17,8 @@ export const CHECKS: { id: CheckId; title: string; expect: string; why: string }
   { id: 'baseline', title: 'Valid delivery, in order', expect: '2xx for each', why: 'Five correctly signed lifecycle events. Failures here usually mean the body was parsed before verification.' },
   { id: 'duplicate', title: 'Duplicate delivery', expect: '2xx, processed once', why: 'Stripe delivers at least once. The same event id arrives again with a fresh signature.' },
   { id: 'out_of_order', title: 'Out-of-order delivery', expect: '2xx, final state canceled', why: 'Stripe does not guarantee order: customer.subscription.deleted arrives before the earlier .updated.' },
+  { id: 'rotated_secret', title: 'Secret being rolled', expect: '2xx', why: 'While a secret is rolled Stripe signs with every active secret, so the header has several v1 values. Here the one that matches yours comes second.' },
+  { id: 'unknown_type', title: 'Unhandled event type', expect: '2xx', why: 'An authentic customer.updated. Endpoints receive types they do not act on; answering with an error makes Stripe retry for days.' },
   { id: 'bad_signature', title: 'Forged signature', expect: '4xx', why: 'Signed with a different secret. Accepting it lets anyone mark invoices paid.' },
   { id: 'stale_timestamp', title: 'Replayed (stale) timestamp', expect: '4xx', why: 'Correctly signed, but t is 10 minutes old (tolerance is 300s). Accepting it allows replay attacks.' },
   { id: 'tampered_body', title: 'Tampered body', expect: '4xx', why: 'Signed, then amount_paid edited in transit.' },
@@ -64,7 +68,7 @@ export function expectedLedger(events: StripeEvent[]): Ledger {
 
 // ---------------------------------------------------------------- runner
 
-type Mode = 'valid' | 'bad_signature' | 'stale' | 'tampered' | 'missing'
+type Mode = 'valid' | 'rotated' | 'bad_signature' | 'stale' | 'tampered' | 'missing'
 
 const is2xx = (s: number | null) => s !== null && s >= 200 && s < 300
 const is4xx = (s: number | null) => s !== null && s >= 400 && s < 500
@@ -104,11 +108,12 @@ export async function runChaos(opts: RunOptions): Promise<RunResult> {
     let body = serialize(event)
     const t = mode === 'stale' ? now() - STALE_BY : now()
     const headers: Record<string, string> = { ...BASE_HEADERS }
-    if (mode !== 'missing') headers['stripe-signature'] = await signatureHeader(body, [mode === 'bad_signature' ? randomSecret() : opts.secret], t)
+    const secrets = mode === 'bad_signature' ? [randomSecret()] : mode === 'rotated' ? [randomSecret(), opts.secret] : [opts.secret]
+    if (mode !== 'missing') headers['stripe-signature'] = await signatureHeader(body, secrets, t)
     if (mode === 'tampered') body = body.replace(/"amount_paid": \d+/, '"amount_paid": 1')
     const reply = await opts.send({ body, headers })
     failuresInARow = reply.status === null ? failuresInARow + 1 : 0
-    if (mode === 'valid') authentic.push(event)
+    if (mode === 'valid' || mode === 'rotated') authentic.push(event)
     const d = { ...base, ...reply }
     all.push(d)
     return d
@@ -165,6 +170,19 @@ export async function runChaos(opts: RunOptions): Promise<RunResult> {
       add('out_of_order', 'pass', opts.observe
         ? 'Acknowledged, and the stale update did not resurrect the canceled subscription.'
         : 'Acknowledged with 2xx. Make sure a late .updated cannot overwrite .deleted: re-fetch the object from the API or guard on state transitions.', ds)
+  }
+
+  if (on.has('rotated_secret')) {
+    const d = await deliver('Two v1 signatures, yours second', sc.probe(), 'rotated')
+    if (is2xx(d.status)) add('rotated_secret', 'pass', 'Accepted: every v1 signature in the header is checked.', [d])
+    else
+      add('rotated_secret', 'fail', `An authentic event got ${describe(d)}. Only the first v1 value is being compared, so events are dropped whenever the signing secret is rolled. Check every v1 (the official libraries do).`, [d])
+  }
+
+  if (on.has('unknown_type')) {
+    const d = await deliver('customer.updated (not a billing event)', sc.unhandled())
+    if (is2xx(d.status)) add('unknown_type', 'pass', 'Acknowledged with 2xx.', [d])
+    else add('unknown_type', 'fail', `Got ${describe(d)}. Return 2xx for event types you do not handle; anything else is retried and counts toward disabling the endpoint.`, [d])
   }
 
   const negative = async (id: CheckId, mode: Mode, label: string, danger: string) => {

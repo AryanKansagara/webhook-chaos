@@ -1,11 +1,53 @@
 // Signature debugger logic. Runs in the browser (WebCrypto); nothing leaves the page.
-import { computeSignature, DEFAULT_TOLERANCE, parseSignatureHeader, safeEqual, type ParsedHeader } from '../api/_lib/stripe.ts'
+import { computeSignature, DEFAULT_TOLERANCE, parseSignatureHeader, payloadHashTail, safeEqual, type ParsedHeader } from '../api/_lib/stripe.ts'
 
 export type Level = 'good' | 'warn' | 'bad' | 'info'
 export interface Finding { level: Level; title: string; detail: string }
-export interface Diagnosis { parsed: ParsedHeader; expected: string | null; match: boolean; findings: Finding[] }
+export interface Diagnosis { parsed: ParsedHeader; expected: string | null; match: boolean; findings: Finding[]; bodyHash: string }
 
 const fmt = (s: number) => (Math.abs(s) < 120 ? `${s}s` : Math.abs(s) < 7200 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`)
+
+// How other runtimes write the same JSON value. Each helper rewrites compact JSON.stringify output;
+// the first alternative of the regex consumes whole string literals so only structure is touched.
+const STRING = /"(?:[^"\\]|\\.)*"/.source
+const spaced = (json: string) => json.replace(new RegExp(`${STRING}|[,:]`, 'g'), (m) => (m === ',' ? ', ' : m === ':' ? ': ' : m))
+const escape = (re: RegExp) => (json: string) => json.replace(re, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
+const asciiOnly = escape(/[\u007f-\uffff]/g)
+const htmlSafe = escape(/[<>&\u2028\u2029]/g)
+
+/** Stripe writes `id` and `object` first and every other key alphabetically, at every level. */
+const rank = (k: string) => (k === 'id' ? 0 : k === 'object' ? 1 : 2)
+const reorder = (v: unknown, cmp: (a: string, b: string) => number): unknown =>
+  Array.isArray(v) ? v.map((x) => reorder(x, cmp))
+  : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort(cmp).map((k) => [k, reorder((v as Record<string, unknown>)[k], cmp)]))
+  : v
+const byName = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+const stripeOrder = (a: string, b: string) => rank(a) - rank(b) || byName(a, b)
+
+const RAW = 'Verify the raw request bytes instead.'
+
+/** Names the serializer that produced `body`, when its output is recognisable. */
+export function guessSerializer(body: string): string | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return null
+  }
+  const compact = JSON.stringify(parsed)
+  const sorted = JSON.stringify(reorder(parsed, byName))
+  const isSorted = compact === sorted
+  const php = asciiOnly(compact).replace(/\//g, '\\/')
+  if (body === compact && body === htmlSafe(compact) && body === php)
+    return 'It is compact JSON, as JSON.stringify(req.body) writes it after express.json() or a similar body parser (Go and PHP produce the same bytes for this payload).'
+  if (body === compact) return 'It is compact JSON, as JSON.stringify(req.body) writes it after express.json() or a similar body parser.'
+  if (body === spaced(compact) || body === asciiOnly(spaced(compact)))
+    return `It is formatted the way Python's json.dumps() writes JSON (", " and ": " separators${isSorted ? ', keys sorted' : ''}). Use request.get_data() in Flask or request.body in Django.`
+  if (body === php) return "It is formatted the way PHP's json_encode() writes JSON (escaped slashes). Read php://input or $request->getContent()."
+  if (body === htmlSafe(compact))
+    return 'It is formatted the way Go encoding/json writes JSON (<, > and & escaped). Read the body once with io.ReadAll and pass those bytes to webhook.ConstructEvent.'
+  return null
+}
 
 /** Body transformations frameworks commonly apply, with the diagnosis each one implies. */
 function variants(body: string): { body: string; title: string; detail: string }[] {
@@ -15,27 +57,34 @@ function variants(body: string): { body: string; title: string; detail: string }
     { body: body.replace(/\r\n/g, '\n'), title: 'Signature matches after converting CRLF to LF', detail: 'Line endings were changed to CRLF somewhere between the request and your verification code.' },
     { body: body.trim(), title: 'Signature matches after trimming whitespace', detail: 'Leading/trailing whitespace was added to the body before verification.' },
   ]
+  if (body.charCodeAt(0) === 0xfeff)
+    out.unshift({ body: body.slice(1), title: 'Signature matches without the byte order mark', detail: 'The body starts with a UTF-8 BOM that Stripe did not send. A file or editor added it; verify the bytes as received.' })
   try {
     const parsed = JSON.parse(body)
+    const hint = guessSerializer(body)
     out.push(
-      { body: JSON.stringify(parsed, null, 2), title: 'Signature matches the pretty-printed JSON, not this body', detail: 'Stripe sends 2-space indented JSON. The body you have was parsed and re-serialized (e.g. express.json() then JSON.stringify(req.body)). Verify the raw request bytes instead.' },
-      { body: JSON.stringify(parsed), title: 'Signature matches compact JSON, not this body', detail: 'The body was parsed and re-formatted after it arrived. Verify the raw request bytes instead.' },
+      { body: JSON.stringify(parsed, null, 2), title: 'Signature matches the pretty-printed JSON, not this body', detail: `Stripe sends 2-space indented JSON. The body you have was parsed and re-serialized. ${hint ?? 'A typical cause is express.json() followed by JSON.stringify(req.body).'} ${RAW}` },
+      { body: JSON.stringify(reorder(parsed, stripeOrder), null, 2), title: 'Signature matches after restoring Stripe\'s key order and indentation', detail: `The body was parsed and written back with its keys in a different order (a Go map, Python sort_keys=True, jq -S, or a database JSON column all do this). ${hint ?? ''} ${RAW}`.replace(/ {2,}/g, ' ') },
+      { body: JSON.stringify(parsed), title: 'Signature matches compact JSON, not this body', detail: `The body was parsed and re-formatted after it arrived. ${RAW}` },
     )
   } catch { /* not JSON: only whitespace variants apply */ }
-  return out.filter((v) => v.body !== body)
+  const seen = new Set([body])
+  return out.filter((v) => !seen.has(v.body) && seen.add(v.body))
 }
 
 export async function diagnose(input: { body: string; header: string; secrets: string; now: number; tolerance?: number }): Promise<Diagnosis> {
   const tolerance = input.tolerance ?? DEFAULT_TOLERANCE
   const findings: Finding[] = []
   let header = input.header.trim()
+  const bodyHash = await payloadHashTail(input.body)
+  if (/^(["'`]).*\1$/.test(header)) header = header.slice(1, -1).trim()
   if (/^stripe-signature\s*:/i.test(header)) {
     header = header.replace(/^stripe-signature\s*:\s*/i, '')
     findings.push({ level: 'info', title: 'Removed the "Stripe-Signature:" prefix', detail: 'Only the header value is used for verification.' })
   }
   const parsed = parseSignatureHeader(header)
   const secrets = input.secrets.split('\n').filter((s) => s.trim())
-  const result = (expected: string | null, match: boolean) => ({ parsed, expected, match, findings })
+  const result = (expected: string | null, match: boolean) => ({ parsed, expected, match, findings, bodyHash })
 
   if (!header) return findings.push({ level: 'bad', title: 'No Stripe-Signature header', detail: 'Paste the value of the Stripe-Signature request header. If your server never received one, the request did not come from Stripe (or a proxy stripped it).' }), result(null, false)
   if (parsed.t === null) findings.push({ level: 'bad', title: 'No timestamp (t=) in header', detail: 'A Stripe-Signature header looks like t=1700000000,v1=5257a8…' })
@@ -76,16 +125,31 @@ export async function diagnose(input: { body: string; header: string; secrets: s
     }
   }
 
+  // Stripe's own hints: the header can carry the last 8 hex digits of SHA-256(body) and a masked copy of the secret.
+  const { meta } = parsed
+  const bodyIntact = meta.payload ? meta.payload === bodyHash : null
+  const masked = meta.secret?.includes('*') ? meta.secret : null
+  const where = meta.destination ? ` (https://dashboard.stripe.com/webhooks/${encodeURIComponent(meta.destination)})` : ''
+  if (!match && masked) {
+    const fits = secrets.map((s) => s.trim()).some((s) => s.length === masked.length && s.slice(-4) === masked.slice(-4))
+    if (!fits)
+      findings.push({ level: 'bad', title: 'Wrong signing secret for this destination', detail: `The header says the destination's secret is ${masked.length} characters long and looks like ${masked}. None of the secrets you pasted has that length and ending. Copy the secret from this destination's page in the Dashboard${where}.` })
+  }
+  if (!match && bodyIntact === true)
+    findings.push({ level: 'info', title: 'Body is byte-for-byte what Stripe signed', detail: `Its SHA-256 ends in ${bodyHash}, the same as the header's payload= field. The body is not the problem, so the secret is.` })
+  if (!match && bodyIntact === false)
+    findings.push({ level: 'bad', title: 'Body differs from what Stripe signed', detail: `The header's payload= field says the SHA-256 of the signed body ends in ${meta.payload}; this body's ends in ${bodyHash}. Something between Stripe and your verify call changed the bytes.` })
+
   if (!match) {
-    let explained = false
-    outer: for (const v of variants(input.body))
+    let explained = bodyIntact === true
+    if (!explained) outer: for (const v of variants(input.body))
       for (const s of secrets)
         if (await matches(v.body, s.trim())) {
           findings.push({ level: 'bad', title: v.title, detail: v.detail })
           explained = true
           break outer
         }
-    if (!explained && !findings.some((f) => f.title.startsWith('Matches only')))
+    if (!explained && bodyIntact === null && !findings.some((f) => f.title.startsWith('Matches only') || f.title.startsWith('Wrong signing secret')))
       findings.push({ level: 'bad', title: 'Signature does not match', detail: 'No common body transformation explains it, so the secret is the likely culprit. Each endpoint has its own secret; test and live mode secrets differ; and `stripe listen` prints a different secret (valid only for CLI-forwarded events) than the Dashboard endpoint. Also check you are verifying the event you think you are.' })
   }
 

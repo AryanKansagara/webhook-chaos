@@ -327,6 +327,8 @@ const ADVICE: Partial<Record<CheckId, string>> = {
   baseline: 'Verify the raw request bytes. See your framework below.',
   duplicate: 'Store processed event ids and skip repeats (snippet below).',
   out_of_order: 'Re-fetch the object or guard state transitions (snippet below).',
+  rotated_secret: 'Compare against every v1 value in the header, not just the first match of a regex.',
+  unknown_type: 'End the handler with a default branch that logs the type and returns 2xx.',
   bad_signature: 'Always call constructEvent and return 400 when it throws.',
   stale_timestamp: 'Use the official library defaults (300s tolerance); never pass tolerance 0.',
   tampered_body: 'Verify the exact bytes you then parse, not a re-encoded copy.',

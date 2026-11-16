@@ -1,0 +1,505 @@
+{
+ "source": "https://github.com/stripe/openapi/blob/master/openapi/spec3.json",
+ "licence": "MIT (Stripe, Inc.)",
+ "api_version": "2026-09-30.endive",
+ "retrieved": "2026-11-16",
+ "note": "Property names, required lists and enums only, for the schemas the event builder emits.",
+ "schemas": {
+  "event": {
+   "required": [
+    "created",
+    "data",
+    "id",
+    "livemode",
+    "object",
+    "pending_webhooks",
+    "type"
+   ],
+   "properties": [
+    "account",
+    "api_version",
+    "context",
+    "created",
+    "data",
+    "id",
+    "livemode",
+    "object",
+    "pending_webhooks",
+    "request",
+    "type"
+   ],
+   "enums": {
+    "object": [
+     "event"
+    ]
+   }
+  },
+  "notification_event_data": {
+   "required": [
+    "object"
+   ],
+   "properties": [
+    "object",
+    "previous_attributes"
+   ],
+   "enums": {}
+  },
+  "notification_event_request": {
+   "required": [],
+   "properties": [
+    "id",
+    "idempotency_key"
+   ],
+   "enums": {}
+  },
+  "subscription": {
+   "required": [
+    "automatic_tax",
+    "billing_cycle_anchor",
+    "billing_mode",
+    "billing_schedules",
+    "cancel_at_period_end",
+    "collection_method",
+    "created",
+    "currency",
+    "customer",
+    "discounts",
+    "id",
+    "invoice_settings",
+    "items",
+    "livemode",
+    "metadata",
+    "object",
+    "start_date",
+    "status"
+   ],
+   "properties": [
+    "application",
+    "application_fee_percent",
+    "automatic_tax",
+    "billing_cycle_anchor",
+    "billing_cycle_anchor_config",
+    "billing_mode",
+    "billing_schedules",
+    "billing_thresholds",
+    "cancel_at",
+    "cancel_at_period_end",
+    "canceled_at",
+    "cancellation_details",
+    "collection_method",
+    "created",
+    "currency",
+    "customer",
+    "customer_account",
+    "days_until_due",
+    "default_payment_method",
+    "default_source",
+    "default_tax_rates",
+    "description",
+    "discounts",
+    "ended_at",
+    "id",
+    "invoice_settings",
+    "items",
+    "latest_invoice",
+    "livemode",
+    "managed_payments",
+    "metadata",
+    "next_pending_invoice_item_invoice",
+    "object",
+    "on_behalf_of",
+    "pause_collection",
+    "payment_settings",
+    "pending_invoice_item_interval",
+    "pending_setup_intent",
+    "pending_update",
+    "presentment_details",
+    "schedule",
+    "start_date",
+    "status",
+    "status_details",
+    "test_clock",
+    "transfer_data",
+    "trial_end",
+    "trial_settings",
+    "trial_start"
+   ],
+   "enums": {
+    "collection_method": [
+     "charge_automatically",
+     "send_invoice"
+    ],
+    "object": [
+     "subscription"
+    ],
+    "status": [
+     "active",
+     "canceled",
+     "incomplete",
+     "incomplete_expired",
+     "past_due",
+     "paused",
+     "trialing",
+     "unpaid"
+    ]
+   }
+  },
+  "subscription_item": {
+   "required": [
+    "created",
+    "current_period_end",
+    "current_period_start",
+    "discounts",
+    "id",
+    "metadata",
+    "object",
+    "price",
+    "subscription"
+   ],
+   "properties": [
+    "billed_until",
+    "billing_thresholds",
+    "created",
+    "current_period_end",
+    "current_period_start",
+    "current_trial",
+    "discounts",
+    "id",
+    "metadata",
+    "object",
+    "price",
+    "quantity",
+    "subscription",
+    "tax_rates"
+   ],
+   "enums": {
+    "object": [
+     "subscription_item"
+    ]
+   }
+  },
+  "price": {
+   "required": [
+    "active",
+    "billing_scheme",
+    "created",
+    "currency",
+    "id",
+    "livemode",
+    "metadata",
+    "object",
+    "product",
+    "type"
+   ],
+   "properties": [
+    "active",
+    "billing_scheme",
+    "created",
+    "currency",
+    "currency_options",
+    "custom_unit_amount",
+    "id",
+    "livemode",
+    "lookup_key",
+    "metadata",
+    "nickname",
+    "object",
+    "product",
+    "recurring",
+    "tax_behavior",
+    "tiers",
+    "tiers_mode",
+    "transform_quantity",
+    "type",
+    "unit_amount",
+    "unit_amount_decimal"
+   ],
+   "enums": {
+    "billing_scheme": [
+     "per_unit",
+     "tiered"
+    ],
+    "object": [
+     "price"
+    ],
+    "tax_behavior": [
+     "exclusive",
+     "inclusive",
+     "unspecified"
+    ],
+    "tiers_mode": [
+     "graduated",
+     "volume"
+    ],
+    "type": [
+     "one_time",
+     "recurring"
+    ]
+   }
+  },
+  "recurring": {
+   "required": [
+    "interval",
+    "interval_count",
+    "usage_type"
+   ],
+   "properties": [
+    "interval",
+    "interval_count",
+    "meter",
+    "usage_type"
+   ],
+   "enums": {
+    "interval": [
+     "day",
+     "month",
+     "week",
+     "year"
+    ],
+    "usage_type": [
+     "licensed",
+     "metered"
+    ]
+   }
+  },
+  "invoice": {
+   "required": [
+    "amount_due",
+    "amount_overpaid",
+    "amount_paid",
+    "amount_paid_off_stripe",
+    "amount_remaining",
+    "amount_shipping",
+    "attempt_count",
+    "attempted",
+    "auto_advance",
+    "automatic_tax",
+    "collection_method",
+    "created",
+    "currency",
+    "customer",
+    "default_tax_rates",
+    "discounts",
+    "id",
+    "issuer",
+    "lines",
+    "livemode",
+    "object",
+    "payment_settings",
+    "period_end",
+    "period_start",
+    "post_payment_credit_notes_amount",
+    "pre_payment_credit_notes_amount",
+    "starting_balance",
+    "status_transitions",
+    "subtotal",
+    "total"
+   ],
+   "properties": [
+    "account_country",
+    "account_name",
+    "account_tax_ids",
+    "amount_due",
+    "amount_overpaid",
+    "amount_paid",
+    "amount_paid_off_stripe",
+    "amount_remaining",
+    "amount_shipping",
+    "application",
+    "attempt_count",
+    "attempted",
+    "auto_advance",
+    "automatic_tax",
+    "automatically_finalizes_at",
+    "billing_reason",
+    "collection_method",
+    "confirmation_secret",
+    "created",
+    "currency",
+    "custom_fields",
+    "customer",
+    "customer_account",
+    "customer_address",
+    "customer_email",
+    "customer_name",
+    "customer_phone",
+    "customer_shipping",
+    "customer_tax_exempt",
+    "customer_tax_ids",
+    "default_payment_method",
+    "default_source",
+    "default_tax_rates",
+    "description",
+    "discounts",
+    "due_date",
+    "effective_at",
+    "ending_balance",
+    "footer",
+    "from_invoice",
+    "hosted_invoice_url",
+    "id",
+    "invoice_pdf",
+    "issuer",
+    "last_finalization_error",
+    "latest_revision",
+    "lines",
+    "livemode",
+    "metadata",
+    "next_payment_attempt",
+    "number",
+    "object",
+    "on_behalf_of",
+    "parent",
+    "payment_settings",
+    "payments",
+    "period_end",
+    "period_start",
+    "post_payment_credit_notes_amount",
+    "pre_payment_credit_notes_amount",
+    "receipt_number",
+    "rendering",
+    "shipping_cost",
+    "shipping_details",
+    "starting_balance",
+    "statement_descriptor",
+    "status",
+    "status_details",
+    "status_transitions",
+    "subtotal",
+    "subtotal_excluding_tax",
+    "test_clock",
+    "threshold_reason",
+    "total",
+    "total_discount_amounts",
+    "total_excluding_tax",
+    "total_pretax_credit_amounts",
+    "total_taxes",
+    "webhooks_delivered_at"
+   ],
+   "enums": {
+    "billing_reason": [
+     "automatic_pending_invoice_item_invoice",
+     "manual",
+     "quote_accept",
+     "subscription",
+     "subscription_create",
+     "subscription_cycle",
+     "subscription_threshold",
+     "subscription_update",
+     "upcoming"
+    ],
+    "collection_method": [
+     "charge_automatically",
+     "send_invoice"
+    ],
+    "customer_tax_exempt": [
+     "exempt",
+     "none",
+     "reverse"
+    ],
+    "object": [
+     "invoice"
+    ],
+    "status": [
+     "draft",
+     "open",
+     "paid",
+     "uncollectible",
+     "void"
+    ]
+   }
+  },
+  "line_item": {
+   "required": [
+    "amount",
+    "currency",
+    "discountable",
+    "discounts",
+    "id",
+    "livemode",
+    "metadata",
+    "object",
+    "period",
+    "subtotal"
+   ],
+   "properties": [
+    "amount",
+    "currency",
+    "description",
+    "discount_amounts",
+    "discountable",
+    "discounts",
+    "id",
+    "invoice",
+    "livemode",
+    "metadata",
+    "object",
+    "parent",
+    "period",
+    "pretax_credit_amounts",
+    "pricing",
+    "quantity",
+    "quantity_decimal",
+    "subscription",
+    "subtotal",
+    "taxes"
+   ],
+   "enums": {
+    "object": [
+     "line_item"
+    ]
+   }
+  },
+  "customer": {
+   "required": [
+    "created",
+    "id",
+    "livemode",
+    "object"
+   ],
+   "properties": [
+    "address",
+    "balance",
+    "business_name",
+    "cash_balance",
+    "created",
+    "currency",
+    "customer_account",
+    "default_source",
+    "delinquent",
+    "description",
+    "discount",
+    "email",
+    "id",
+    "individual_name",
+    "invoice_credit_balance",
+    "invoice_prefix",
+    "invoice_settings",
+    "livemode",
+    "metadata",
+    "name",
+    "next_invoice_sequence",
+    "object",
+    "phone",
+    "preferred_locales",
+    "shipping",
+    "sources",
+    "subscriptions",
+    "tax",
+    "tax_exempt",
+    "tax_ids",
+    "test_clock"
+   ],
+   "enums": {
+    "object": [
+     "customer"
+    ],
+    "tax_exempt": [
+     "exempt",
+     "none",
+     "reverse"
+    ]
+   }
+  }
+ }
+}
