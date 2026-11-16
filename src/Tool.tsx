@@ -3,6 +3,8 @@ import { Shell } from './Shell.tsx'
 import { BackToHome } from './router.tsx'
 import { ChaosTab } from './ChaosTab.tsx'
 import { diagnose, type Diagnosis } from './diagnose.ts'
+import { go } from './router.tsx'
+import { buildScenario, randomSecret, serialize, signatureHeader } from '../api/_lib/stripe.ts'
 
 type Tab = 'chaos' | 'debugger'
 
@@ -33,6 +35,9 @@ export default function Tool() {
           <button className="btn ghost" onClick={() => setTab('debugger')}>
             Open signature debugger
           </button>
+          <button className="btn ghost" onClick={() => go('/docs')}>
+            How it works
+          </button>
         </div>
       </section>
 
@@ -50,6 +55,15 @@ export default function Tool() {
   )
 }
 
+type Example = 'valid' | 'reparsed' | 'secret' | 'env' | 'stale'
+const EXAMPLES: [Example, string][] = [
+  ['valid', 'Valid'],
+  ['reparsed', 'Re-serialized body'],
+  ['secret', 'Wrong secret'],
+  ['env', 'Secret with a stray space'],
+  ['stale', 'Replayed an hour later'],
+]
+
 function DebuggerTab() {
   const [body, setBody] = useState('')
   const [header, setHeader] = useState('')
@@ -57,13 +71,29 @@ function DebuggerTab() {
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<Diagnosis | null>(null)
 
-  async function run() {
+  async function run(input = { body, header, secrets }) {
     setRunning(true)
     try {
-      setResult(await diagnose({ body, header, secrets, now: Math.floor(Date.now() / 1000) }))
+      setResult(await diagnose({ ...input, now: Math.floor(Date.now() / 1000) }))
     } finally {
       setRunning(false)
     }
+  }
+
+  // Fills the form with a freshly signed synthetic event, broken in one specific way.
+  async function example(kind: Example) {
+    const now = Math.floor(Date.now() / 1000)
+    const secret = randomSecret()
+    const raw = serialize(buildScenario(now).lifecycle[1])
+    const input = {
+      body: kind === 'reparsed' ? JSON.stringify(JSON.parse(raw)) : raw,
+      header: await signatureHeader(raw, [secret], kind === 'stale' ? now - 3600 : now),
+      secrets: kind === 'secret' ? randomSecret() : kind === 'env' ? `${secret} ` : secret,
+    }
+    setBody(input.body)
+    setHeader(input.header)
+    setSecrets(input.secrets)
+    await run(input)
   }
 
   return (
@@ -73,6 +103,13 @@ function DebuggerTab() {
         Paste the raw request body, the <code>Stripe-Signature</code> header, and your endpoint signing secret(s).
         Diagnosis uses WebCrypto in this tab — nothing is sent to the server.
       </p>
+
+      <div className="row" style={{ marginBottom: 16 }}>
+        <span className="muted small">Try an example:</span>
+        {EXAMPLES.map(([kind, label]) => (
+          <button key={kind} className="btn ghost" disabled={running} onClick={() => void example(kind)}>{label}</button>
+        ))}
+      </div>
 
       <div className="grid cols-2">
         <label className="field" style={{ marginTop: 0 }}>
@@ -113,7 +150,7 @@ function DebuggerTab() {
       </div>
 
       <div className="row run-row">
-        <button className="btn" disabled={running} onClick={() => void run()}>
+        <button className="btn" disabled={running || (!body && !header)} onClick={() => void run()}>
           {running ? 'Diagnosing…' : 'Diagnose'}
         </button>
         {result && (
@@ -128,9 +165,13 @@ function DebuggerTab() {
           {result.expected && (
             <p className="muted small mono">
               Expected v1 (secret #1): <code className="snippet">{result.expected}</code>
-              {result.parsed.t != null && <> · t={result.parsed.t}</>}
             </p>
           )}
+          <p className="muted small mono">
+            {result.parsed.t != null && <>t={result.parsed.t} ({new Date(result.parsed.t * 1000).toISOString().replace('.000', '')}) · </>}
+            {result.parsed.v1.length} v1 · {new TextEncoder().encode(body).length} body bytes · SHA-256 ends in {result.bodyHash}
+            {result.parsed.meta.destination && <> · destination {result.parsed.meta.destination}</>}
+          </p>
           {result.findings.map((f, i) => (
             <div key={i} className={`finding ${f.level}`}>
               <div className="row">

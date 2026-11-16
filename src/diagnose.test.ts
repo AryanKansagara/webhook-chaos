@@ -35,7 +35,9 @@ test('detects trailing newline, stale timestamp, wrong key type, rotation', asyn
 
 test('wrong secret points at the secret; missing v1 explains v0', async () => {
   const header = await signatureHeader(body, [secret], now)
-  assert.match(titles(await diagnose({ body, header, secrets: 'whsec_other_secret_000000', now })), /does not match/)
+  assert.match(titles(await diagnose({ body, header, secrets: 'whsec_other_secret_000000', now })), /Wrong signing secret for this destination \| Body is byte-for-byte/)
+  const bare = await signatureHeader(body, [secret], now, false)
+  assert.match(titles(await diagnose({ body, header: bare, secrets: 'whsec_other_secret_000000', now })), /does not match/)
   assert.match(titles(await diagnose({ body, header: `t=${now},v0=abc`, secrets: secret, now })), /No v1/)
   assert.match(titles(await diagnose({ body, header: `Stripe-Signature: ${header}`, secrets: secret, now })), /Signature matches/)
 })

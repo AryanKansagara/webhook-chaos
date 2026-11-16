@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { runChaos, type Send } from './chaos.ts'
 import { createDemo } from './demos.ts'
-import { API_VERSION, buildScenario, hmacHex, parseSignatureHeader, payloadHashTail } from './stripe.ts'
+import { API_VERSION, buildScenario, hmacHex, maskSecret, parseSignatureHeader, payloadHashTail, signatureHeader, verifySignature } from './stripe.ts'
 
 interface Schema { required: string[]; properties: string[]; enums: Record<string, string[]> }
 const fx = JSON.parse(readFileSync(new URL('./fixtures/stripe-openapi-excerpt.json', import.meta.url), 'utf8')) as {
@@ -76,6 +76,30 @@ test('HMAC-SHA256 matches RFC 4231 test cases 1 and 2', async () => {
 test('payload hash tail is the last 4 bytes of SHA-256 over UTF-8', async () => {
   const body = '{"description": "1 × Pro"}'
   assert.equal(await payloadHashTail(body), createHash('sha256').update(body, 'utf8').digest('hex').slice(-8))
+})
+
+test('the example header from the Stripe docs parses (docs.stripe.com/webhooks, "Verify manually")', () => {
+  const p = parseSignatureHeader(
+    't=1798765432,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd,v1=38c9f77a6fdb86d7f67e427e6076f1e38e244eb8ddc7a90f7f9dd4478d5bb2c2,' +
+    'v0=6ffbb59b2300aae63f272406069a9788598b792a944a07aba816edb039989a39,secret=whsec_****************************PzVt,destination=we_1TN7mG6oEAX7HoXLZoZugElv,payload=a25aefc6',
+  )
+  assert.equal(p.t, 1798765432)
+  assert.equal(p.v1.length, 2)
+  assert.equal(p.v0.length, 1)
+  assert.deepEqual(p.unknown, [])
+  assert.deepEqual(p.meta, { secret: 'whsec_****************************PzVt', destination: 'we_1TN7mG6oEAX7HoXLZoZugElv', payload: 'a25aefc6' })
+})
+
+test('generated headers carry the same entries as the documented one, and both demos still parse them', async () => {
+  const s = 'whsec_abcdefghijklmnopqrstuvwxyz012345'
+  const h = await signatureHeader('{}', ['whsec_old', s], 1798765432, 'we_1TN7mG6oEAX7HoXLZoZugElv')
+  assert.deepEqual(h.split(',').map((e) => e.split('=')[0]), ['t', 'v1', 'v1', 'v0', 'secret', 'destination', 'payload'])
+  const p = parseSignatureHeader(h)
+  assert.equal(p.meta.secret, maskSecret(s))
+  assert.equal(p.meta.secret!.length, s.length)
+  assert.equal(p.meta.secret, 'whsec_****************************2345')
+  assert.equal(p.meta.payload, await payloadHashTail('{}'))
+  assert.equal((await verifySignature('{}', h, s, { now: 1798765432 })).ok, true)
 })
 
 test('header debug metadata: first value wins, bad payload hash ignored, v1 untouched', () => {

@@ -27,8 +27,9 @@ export function BackToHome({ label = 'Back to home' }: { label?: string }) {
   )
 }
 
-export function RouteApp({ landing, tool }: { landing: ReactNode; tool: ReactNode }) {
+export function RouteApp({ landing, tool, docs }: { landing: ReactNode; tool: ReactNode; docs: ReactNode }) {
   const path = usePath()
+  if (path === '/docs' || path.startsWith('/docs/')) return <>{docs}</>
   if (path === '/app' || path.startsWith('/app/')) return <>{tool}</>
   return <>{landing}</>
 }

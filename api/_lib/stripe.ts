@@ -52,11 +52,25 @@ export function computeSignature(payload: string, secret: string, t: number): Pr
   return hmacHex(secret, `${t}.${payload}`)
 }
 
-/** Builds `t=…,v1=…[,v1=…],v0=…`. One v1 per active secret (rotation); v0 is the fake test-mode scheme. */
-export async function signatureHeader(payload: string, secrets: string[], t: number, withV0 = true): Promise<string> {
+/** A secret as the header's `secret=` entry shows it: same length, only the prefix and last four visible. */
+export const maskSecret = (s: string) => `whsec_${'*'.repeat(Math.max(0, s.length - 10))}${s.slice(-4)}`
+
+/**
+ * Builds the header the way Stripe documents it for sandbox events:
+ * `t=…,v1=…[,v1=…],v0=…,secret=whsec_***abcd,destination=we_…,payload=<sha256 suffix>`.
+ * One v1 per active secret (oldest first), a fake v0, then the optional debugging entries.
+ * Pass `destination: false` for the bare `t=…,v1=…` form.
+ */
+export async function signatureHeader(payload: string, secrets: string[], t: number, destination: string | false = stripeId('we')): Promise<string> {
   const parts = [`t=${t}`]
   for (const s of secrets) parts.push(`v1=${await computeSignature(payload, s, t)}`)
-  if (withV0) parts.push(`v0=${await computeSignature(payload, randomSecret(), t)}`)
+  if (destination)
+    parts.push(
+      `v0=${await computeSignature(payload, randomSecret(), t)}`,
+      `secret=${maskSecret(secrets[secrets.length - 1])}`,
+      `destination=${destination}`,
+      `payload=${await payloadHashTail(payload)}`,
+    )
   return parts.join(',')
 }
 

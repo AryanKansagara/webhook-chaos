@@ -514,7 +514,7 @@ section { margin: 20px 0; }
   overflow: auto;
 }
 .code .copy { position: absolute; top: 8px; right: 8px; }
-.code pre { margin: 0; white-space: pre-wrap; }
+.code pre { margin: 0; white-space: pre-wrap; padding-right: 84px; }
 .snippet { font-size: 12px; word-break: break-all; }
 .advice { padding-left: 18px; }
 .advice li { margin: 6px 0; }

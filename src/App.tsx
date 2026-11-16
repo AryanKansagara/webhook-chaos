@@ -1,6 +1,7 @@
 import { RouteApp } from './router.tsx'
 import { Landing, MockFrame, MockList } from './Landing.tsx'
 import Tool from './Tool.tsx'
+import Docs from './Docs.tsx'
 
 function ProductLanding() {
   return (
@@ -15,12 +16,12 @@ function ProductLanding() {
         {
           icon: 'speed',
           title: 'Chaos score',
-          body: 'Get a 0–100 reliability score from how your handler deals with messy Stripe deliveries.',
+          body: 'Ten checks, from duplicates and reordering to forged, replayed and rolled-secret signatures, scored 0 to 100.',
         },
         {
           icon: 'link',
           title: 'Demo vs your URL',
-          body: 'Try built-in naive/idempotent demos, or point chaos at your own HTTPS endpoint.',
+          body: 'Try the built-in demo handlers, point it at your HTTPS endpoint, or download a script for localhost.',
         },
         {
           icon: 'bug_report',
@@ -31,15 +32,15 @@ function ProductLanding() {
       slides={[
         {
           title: 'Chaos score',
-          caption: 'A weak handler fails replay and signature checks — scored 42/100.',
+          caption: 'A handler can answer 200 to everything and still score 55/100.',
           preview: (
             <MockFrame title="Chaos score">
-              <div className="mock-score tone-bad">42/100</div>
+              <div className="mock-score tone-bad">55/100</div>
               <MockList
                 items={[
-                  { badge: 'Bad', text: 'Accepted forged signature', tone: 'bad' },
-                  { badge: 'Bad', text: 'Double-processed duplicate event', tone: 'bad' },
-                  { badge: 'Warn', text: 'Ignored stale timestamp', tone: 'warn' },
+                  { badge: 'Fail', text: 'Duplicate delivery recorded twice', tone: 'bad' },
+                  { badge: 'Fail', text: 'Replayed timestamp accepted', tone: 'bad' },
+                  { badge: 'Warn', text: 'One response took over 3s', tone: 'warn' },
                 ]}
               />
             </MockFrame>
@@ -52,10 +53,10 @@ function ProductLanding() {
             <MockFrame title="Check results">
               <MockList
                 items={[
-                  { badge: 'Fail', text: 'Duplicate delivery — processed twice', tone: 'bad' },
-                  { badge: 'Fail', text: 'Out-of-order events — wrong state', tone: 'bad' },
-                  { badge: 'Pass', text: 'Valid signed event accepted', tone: 'good' },
-                  { badge: 'Fail', text: 'Bad signature still 200 OK', tone: 'bad' },
+                  { badge: 'Pass', text: 'Valid delivery, in order', tone: 'good' },
+                  { badge: 'Fail', text: 'Out-of-order delivery: canceled subscription active again', tone: 'bad' },
+                  { badge: 'Fail', text: 'Secret being rolled: second v1 ignored', tone: 'bad' },
+                  { badge: 'Pass', text: 'Forged signature rejected with 400', tone: 'good' },
                 ]}
               />
             </MockFrame>
@@ -68,9 +69,9 @@ function ProductLanding() {
             <MockFrame title="Signature debugger">
               <MockList
                 items={[
-                  { badge: 'Bad', text: 'v1 signature does not match any secret', tone: 'bad' },
-                  { badge: 'Warn', text: 'Timestamp skew > 5 minutes', tone: 'warn' },
-                  { badge: 'Info', text: 'Body whitespace differs from signed bytes', tone: 'info' },
+                  { badge: 'Bad', text: 'Signature matches the pretty-printed JSON, not this body', tone: 'bad' },
+                  { badge: 'Warn', text: 'Secret has surrounding whitespace', tone: 'warn' },
+                  { badge: 'Good', text: 'Timestamp within tolerance (4s ago)', tone: 'good' },
                 ]}
               />
             </MockFrame>
@@ -82,5 +83,5 @@ function ProductLanding() {
 }
 
 export default function App() {
-  return <RouteApp landing={<ProductLanding />} tool={<Tool />} />
+  return <RouteApp landing={<ProductLanding />} tool={<Tool />} docs={<Docs />} />
 }

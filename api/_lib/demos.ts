@@ -56,9 +56,8 @@ export function createDemo(id: DemoId, secret: string): Demo {
     return json(200, { received: true })
   }
 
-  // Raw-body verification, dedupe by event.id, and never let an older event overwrite newer state.
+  // Raw-body verification, dedupe by event.id, and never let a late event undo a cancellation.
   const seen = new Set<string>()
-  const lastSeen = new Map<string, number>()
   const robust = async (req: Request) => {
     const result = verify(await req.text(), req.headers.get('stripe-signature'), secret)
     if (typeof result === 'string') return json(400, { error: `Webhook Error: ${result}` })
@@ -66,10 +65,9 @@ export function createDemo(id: DemoId, secret: string): Demo {
     seen.add(result.id)
     const obj = result.data.object
     if (result.type.startsWith('customer.subscription.')) {
-      // In production, prefer re-fetching the subscription from the API: `created` has 1s resolution.
-      if (ledger.subscriptions[obj.id] === 'canceled' || result.created < (lastSeen.get(obj.id) ?? 0))
-        return json(200, { received: true, ignored: 'stale' })
-      lastSeen.set(obj.id, result.created)
+      // `canceled` is terminal. Event `created` has 1s resolution and is not an ordering key, so a real
+      // handler should re-fetch the subscription from the API instead of trusting the payload.
+      if (ledger.subscriptions[obj.id] === 'canceled') return json(200, { received: true, ignored: 'stale' })
     }
     applyEvent(ledger, result)
     return json(200, { received: true })

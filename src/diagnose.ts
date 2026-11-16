@@ -130,13 +130,14 @@ export async function diagnose(input: { body: string; header: string; secrets: s
   const bodyIntact = meta.payload ? meta.payload === bodyHash : null
   const masked = meta.secret?.includes('*') ? meta.secret : null
   const where = meta.destination ? ` (https://dashboard.stripe.com/webhooks/${encodeURIComponent(meta.destination)})` : ''
+  const explainedBySecret = () => findings.some((f) => f.title.startsWith('Matches only') || f.title.startsWith('Wrong signing secret'))
   if (!match && masked) {
     const fits = secrets.map((s) => s.trim()).some((s) => s.length === masked.length && s.slice(-4) === masked.slice(-4))
     if (!fits)
       findings.push({ level: 'bad', title: 'Wrong signing secret for this destination', detail: `The header says the destination's secret is ${masked.length} characters long and looks like ${masked}. None of the secrets you pasted has that length and ending. Copy the secret from this destination's page in the Dashboard${where}.` })
   }
   if (!match && bodyIntact === true)
-    findings.push({ level: 'info', title: 'Body is byte-for-byte what Stripe signed', detail: `Its SHA-256 ends in ${bodyHash}, the same as the header's payload= field. The body is not the problem, so the secret is.` })
+    findings.push({ level: 'info', title: 'Body is byte-for-byte what Stripe signed', detail: `Its SHA-256 ends in ${bodyHash}, the same as the header's payload= entry. The body is not the problem, so the secret is: each endpoint has its own, sandbox and live secrets differ, and \`stripe listen\` prints one that only works for CLI-forwarded events.` })
   if (!match && bodyIntact === false)
     findings.push({ level: 'bad', title: 'Body differs from what Stripe signed', detail: `The header's payload= field says the SHA-256 of the signed body ends in ${meta.payload}; this body's ends in ${bodyHash}. Something between Stripe and your verify call changed the bytes.` })
 
@@ -149,7 +150,7 @@ export async function diagnose(input: { body: string; header: string; secrets: s
           explained = true
           break outer
         }
-    if (!explained && bodyIntact === null && !findings.some((f) => f.title.startsWith('Matches only') || f.title.startsWith('Wrong signing secret')))
+    if (!explained && bodyIntact === null && !explainedBySecret())
       findings.push({ level: 'bad', title: 'Signature does not match', detail: 'No common body transformation explains it, so the secret is the likely culprit. Each endpoint has its own secret; test and live mode secrets differ; and `stripe listen` prints a different secret (valid only for CLI-forwarded events) than the Dashboard endpoint. Also check you are verifying the event you think you are.' })
   }
 

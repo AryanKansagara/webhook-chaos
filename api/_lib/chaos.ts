@@ -1,5 +1,5 @@
 // Chaos checks: builds deliveries, sends them through an injected `send`, grades the replies.
-import { buildScenario, randomSecret, serialize, signatureHeader, type StripeEvent } from './stripe.ts'
+import { buildScenario, randomSecret, serialize, signatureHeader, stripeId, type StripeEvent } from './stripe.ts'
 
 export type CheckId =
   | 'baseline'
@@ -96,6 +96,7 @@ export async function runChaos(opts: RunOptions): Promise<RunResult> {
   const now = opts.now ?? (() => Math.floor(Date.now() / 1000))
   const on = new Set(opts.checks)
   const sc = buildScenario(now())
+  const destination = stripeId('we')
   const authentic: StripeEvent[] = []
   const all: Delivery[] = []
   let failuresInARow = 0
@@ -109,7 +110,7 @@ export async function runChaos(opts: RunOptions): Promise<RunResult> {
     const t = mode === 'stale' ? now() - STALE_BY : now()
     const headers: Record<string, string> = { ...BASE_HEADERS }
     const secrets = mode === 'bad_signature' ? [randomSecret()] : mode === 'rotated' ? [randomSecret(), opts.secret] : [opts.secret]
-    if (mode !== 'missing') headers['stripe-signature'] = await signatureHeader(body, secrets, t)
+    if (mode !== 'missing') headers['stripe-signature'] = await signatureHeader(body, secrets, t, destination)
     if (mode === 'tampered') body = body.replace(/"amount_paid": \d+/, '"amount_paid": 1')
     const reply = await opts.send({ body, headers })
     failuresInARow = reply.status === null ? failuresInARow + 1 : 0

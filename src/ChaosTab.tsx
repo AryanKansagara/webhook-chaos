@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
+import { buildScript } from './script.ts'
 import { CHECKS, SLOW_MS, type CheckId, type CheckResult, type Ledger, type RunResponse, type Verdict } from '../api/_lib/chaos.ts'
 
 type Target = 'naive' | 'reparsed' | 'robust' | 'url'
 
 const TARGETS: { id: Target; title: string; desc: string }[] = [
-  { id: 'naive', title: 'Naive demo', desc: 'Verifies the HMAC, but skips the timestamp check, never dedupes, lets the last event win, and sends email before responding.' },
+  { id: 'naive', title: 'Naive demo', desc: 'Verifies the HMAC, but reads only the first v1 value, skips the timestamp check, never dedupes, lets the last event win, and sends email before responding.' },
   { id: 'reparsed', title: 'Re-parsing demo', desc: 'Parses JSON first, then verifies JSON.stringify(body). The classic stripe-node #341 bug.' },
   { id: 'robust', title: 'Robust demo', desc: 'Raw body, constant-time compare, 300s tolerance, dedupe by event.id, ignores stale updates.' },
   { id: 'url', title: 'Your endpoint', desc: 'Send signed test events to your own HTTPS endpoint.' },
@@ -88,6 +89,14 @@ export function ChaosTab({ autorun }: { autorun: number }) {
                 this run's requests, and then discarded. It is never stored or logged. Every event has <code>livemode: false</code> and
                 synthetic ids that do not exist in your account. HTTPS only; private and internal addresses are refused.
               </div>
+              <div className="finding info small">
+                <strong>Endpoint on localhost or behind a VPN?</strong> This site can only reach public HTTPS URLs. Download a script
+                that sends the same deliveries from your own machine with curl and openssl. The secret stays in your shell.
+                <div className="row" style={{ margin: '8px 0' }}>
+                  <button className="btn ghost" onClick={downloadScript}>Download webhook-chaos.sh</button>
+                </div>
+                <code className="snippet">STRIPE_WEBHOOK_SECRET=whsec_… bash webhook-chaos.sh http://localhost:3000/webhooks/stripe</code>
+              </div>
             </div>
           )}
         </div>
@@ -121,6 +130,38 @@ export function ChaosTab({ autorun }: { autorun: number }) {
   )
 }
 
+function downloadScript() {
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([buildScript(Math.floor(Date.now() / 1000))], { type: 'text/x-shellscript' }))
+  a.download = 'webhook-chaos.sh'
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+const TARGET_NAME: Record<string, string> = { naive: 'naive demo', reparsed: 're-parsing demo', robust: 'robust demo', url: 'your endpoint' }
+
+/** The run as Markdown, for a pull request or ticket. Response bodies are left out on purpose. */
+export function reportMarkdown(report: RunResponse): string {
+  const lines = [
+    `## Stripe webhook chaos run: ${report.score}/100`,
+    '',
+    `Target: ${TARGET_NAME[report.target] ?? report.target}`,
+    '',
+    '| Check | Result | Detail |',
+    '| --- | --- | --- |',
+    ...report.checks.map((c) => `| ${c.title} | ${c.verdict.toUpperCase()} | ${c.summary.replace(/\|/g, '/')} |`),
+  ]
+  const failed = report.checks.filter((c) => c.verdict === 'fail' || c.verdict === 'warn')
+  if (failed.length) lines.push('', '### To fix', '', ...failed.map((c) => `- **${c.title}:** ${ADVICE[c.id]}`))
+  return lines.join('\n') + '\n'
+}
+
+function CopyReport({ report }: { report: RunResponse }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => navigator.clipboard.writeText(reportMarkdown(report)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
+  return <button className="btn ghost" onClick={copy}>{copied ? 'Copied' : 'Copy report as Markdown'}</button>
+}
+
 function Report({ report }: { report: RunResponse }) {
   const graded = report.checks.filter((c) => c.verdict !== 'skip')
   const count = (v: Verdict) => graded.filter((c) => c.verdict === v).length
@@ -143,7 +184,10 @@ function Report({ report }: { report: RunResponse }) {
       {report.demo && <LedgerTable demo={report.demo} />}
 
       <div className="panel">
-        <h2>Results</h2>
+        <div className="row spread">
+          <h2>Results</h2>
+          <CopyReport report={report} />
+        </div>
         {report.checks.map((c) => <CheckRow key={c.id} c={c} />)}
       </div>
 
