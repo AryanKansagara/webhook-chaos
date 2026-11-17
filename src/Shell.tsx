@@ -18,7 +18,7 @@ export function Shell({ name, tagline, children }: { name: string; tagline: stri
       <main className="container">{children}</main>
       <footer className="container footer muted">
         <a href="/docs">How it works</a> · <a href="https://github.com/AryanKansagara/webhook-chaos">Source</a> · Built by{' '}
-        <a href="https://github.com/AryanKansagara">Aryan Kansagara</a>. Independent project, not affiliated with Stripe.
+        <a href="https://github.com/AryanKansagara">Aryan Kansagara</a>.
       </footer>
     </>
   )

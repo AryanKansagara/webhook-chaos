@@ -49,4 +49,4 @@ npm run build
 - No PHP fixture: `json_encode` output is recognised by rule, not tested against a real PHP run.
 - The run rate limit is per server instance. Nothing is stored between runs.
 
-Independent project, not affiliated with Stripe.
+
