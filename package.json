@@ -8,7 +8,8 @@
     "dev:vercel": "vercel dev",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "node --test \"src/**/*.test.ts\" \"api/**/*.test.ts\""
+    "test": "node --test \"src/**/*.test.ts\" \"api/**/*.test.ts\" \"tests/**/*.test.ts\"",
+    "test:e2e": "npm run build && playwright test"
   },
   "dependencies": {
     "material": "^3.2.7",
@@ -16,6 +17,7 @@
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

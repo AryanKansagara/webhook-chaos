@@ -37,7 +37,27 @@ npm install
 npm run dev     # serves the app and POST /api/run
 npm test        # the script tests need bash, curl and openssl and are skipped without them
 npm run build
+npm run test:e2e  # builds, then runs the Playwright (Chromium) suite against `vite preview`
 ```
+
+First time only: `npx playwright install chromium`. The E2E server port defaults to 4184; set `E2E_PORT` to use another.
+
+## Tests
+
+- `npm test` runs the unit tests: the engine, signature scheme and debugger (`src/`, `api/`), plus `tests/`, which
+  exercises the outbound-request protections (`api/_lib/net.ts`) against a throwaway HTTPS server on 127.0.0.1:
+  redirects are not followed, the response body is capped, and a request that never answers times out.
+- `npm run test:e2e` drives the production build in Chromium (`e2e/`). `vite preview` has no `/api/run`, so every test
+  gets a stand-in: demo targets run through the real handler (`api/run.ts`) inside the test process, and "Your
+  endpoint" runs are answered by an in-process endpoint through the real engine. Inputs the real handler refuses
+  (private addresses, bad secrets) are forwarded to it. Requests to anything but the preview server are blocked, and a
+  test fails on any uncaught page error or request to an unexpected host. Nothing is ever sent to a real URL.
+- The debugger tests sign their vectors with `node:crypto` following the scheme in the Stripe docs; the docs do not
+  print a complete body, secret and signature, so the header the docs do print is used only for what a header alone shows.
+- Tests marked `test.fail()` assert what a user should get for a bug that is filed as an issue (#2, #3, #4). They pass while the bug
+  exists and start failing when it is fixed, which is the cue to remove the marker.
+- CI (`.github/workflows/ci.yml`, job `test`) runs install, build, unit tests and E2E on pull requests and pushes to `main`.
+- Only `main` is deployed to Vercel (`vercel.json` turns off branch previews); pull requests are checked by CI alone.
 
 ## Known gaps
 
