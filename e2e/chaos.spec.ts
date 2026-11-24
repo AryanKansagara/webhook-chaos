@@ -297,6 +297,14 @@ const API_FAILURES: [string, NonNullable<Api['override']>, RegExp][] = [
   ['429 rate limit', { status: 429, body: JSON.stringify({ error: 'Too many runs. Try again in a minute.' }) }, /Too many runs\. Try again in a minute\./],
   ['502 with an HTML page', { status: 502, contentType: 'text/html', body: '<html>Bad gateway</html>' }, /^Unexpected response \(HTTP 502\)\.$/],
   ['error without a message', { status: 503, body: '{}' }, /^HTTP 503$/],
+  ['200 that is not JSON', { status: 200, contentType: 'text/html', body: '<!doctype html><title>x</title>' }, /^Unexpected response \(HTTP 200\)\.$/],
+  ['200 with an empty body', { status: 200, body: '' }, /^Unexpected response \(HTTP 200\)\.$/],
+  ['200 with JSON null', { status: 200, body: 'null' }, /^Unexpected response \(HTTP 200\)\.$/],
+  ['200 with JSON that is not a report', { status: 200, body: '{"score":1}' }, /^Unexpected response \(HTTP 200\)\.$/],
+  ['200 with a report whose checks are not a list', { status: 200, body: JSON.stringify({ target: 'robust', score: 100, checks: 'none' }) }, /^Unexpected response \(HTTP 200\)\.$/],
+  ['200 with an unknown check id', { status: 200, body: JSON.stringify({ target: 'robust', score: 0, checks: [{ id: 'nope', title: 'x', verdict: 'fail', summary: 'x', deliveries: [] }] }) }, /^Unexpected response \(HTTP 200\)\.$/],
+  ['200 carrying an error message', { status: 200, body: JSON.stringify({ error: 'Maintenance window.' }) }, /^Maintenance window\.$/],
+  ['500 with JSON null', { status: 500, body: 'null' }, /^HTTP 500$/],
   ['dropped connection', 'abort', /fetch|network|Failed/i],
 ]
 for (const [name, override, message] of API_FAILURES) {
@@ -317,17 +325,6 @@ for (const [name, override, message] of API_FAILURES) {
     await expect(alert(page)).toHaveCount(0)
   })
 }
-
-// BUG (#2): a reply that is HTTP 200 but not JSON (a host that answers every path with its index page, for
-// example) is stored as the report, and the page crashes to a blank screen instead of showing an error. This
-// asserts the behaviour a user should get; see the note on the test above.
-test.fail('API failure (200 that is not JSON) shows a message and no results', async ({ page, api }) => {
-  api.override = { status: 200, contentType: 'text/html', body: '<!doctype html><title>x</title>' }
-  await pickTarget(page, /Robust demo/)
-  await runButton(page).click()
-  await expect(alert(page)).toHaveText(/^Unexpected response \(HTTP 200\)\.$/)
-  await expect(stat(page, 'Score')).toHaveCount(0)
-})
 
 // These go through the real handler; its rejections happen before any DNS lookup or connection.
 const BAD_INPUT: [string, string, string, RegExp][] = [
