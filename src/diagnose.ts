@@ -92,8 +92,21 @@ export async function diagnose(input: { body: string; header: string; secrets: s
     findings.push({ level: 'bad', title: 'No v1 signature in header', detail: parsed.v0.length ? 'Only v0 is present. v0 is a fake scheme Stripe adds to test events; only v1 is valid.' : 'Expected one or more v1=<hex> entries.' })
   if (parsed.v1.length > 1)
     findings.push({ level: 'info', title: `${parsed.v1.length} v1 signatures`, detail: 'The endpoint secret is being rolled: Stripe signs with every active secret. Accept the event if any v1 matches.' })
-  if (/,\s/.test(header) || /\s=|=\s/.test(header))
-    findings.push({ level: 'warn', title: 'Whitespace inside the header', detail: 'stripe-node does not trim header items, so ", v1=" fails to match. Pass the header value through untouched.' })
+  // stripe-node compares header keys and signature values as written (parseHeader in src/Webhooks.ts), so padding
+  // around a key or a v1 value makes that entry unreadable. The first branch states what the library would then do.
+  const padded = parsed.unknown.filter((k) => ['t', 'v1'].includes(k.trim()))
+  const named = padded.map((k) => JSON.stringify(k)).join(', ')
+  if (padded.length)
+    findings.push({
+      level: parsed.t === null || !parsed.v1.length ? 'bad' : 'warn',
+      title: 'Whitespace inside the header',
+      detail: `stripe-node does not trim header items, so a key written as ${named} is not the key it looks like, and the entry is ignored. ${
+        parsed.t === null ? 'No timestamp is read, so constructEvent throws "Unable to extract timestamp and signatures from header".'
+        : !parsed.v1.length ? 'No v1 signature is read, so constructEvent throws "No signatures found with expected scheme".'
+        : 'The remaining entries are still read.'} A space after a comma usually comes from a reformatted copy of the header; pass the value through untouched.`,
+    })
+  else if (parsed.v1.some((v) => v !== v.trim()))
+    findings.push({ level: 'warn', title: 'Whitespace inside the header', detail: 'stripe-node compares each v1 value exactly as written, so a v1 value with a space or line break around it never matches. Pass the header value through untouched.' })
   if (!secrets.length) return findings.push({ level: 'bad', title: 'No signing secret', detail: 'Paste the endpoint signing secret (whsec_…).' }), result(null, false)
 
   for (const s of secrets) {

@@ -213,14 +213,52 @@ test('a header pasted with its name and quotes is still recognised', async ({ pa
   await expect(verdict(page)).toHaveText('Would verify')
 })
 
-// BUG (#4): stripe-node splits the header on "," and compares the key as is, so " v1" is not "v1" and a header with
-// a space after a comma carries no signature (https://github.com/stripe/stripe-node/blob/master/src/Webhooks.ts,
-// parseHeader). The debugger warns about exactly that, yet still says "Would verify". This asserts the behaviour a user
-// should get; it passes while the bug exists and starts failing once it is fixed, which is the cue to remove the marker.
-test.fail('a header with a space after a comma is not reported as verifying', async ({ page }) => {
+// stripe-node splits the header on "," and compares each key as written, so " v1" is not "v1" and a header with a space
+// after a comma carries no signature: constructEvent throws "No signatures found with expected scheme"
+// (parseHeader in https://github.com/stripe/stripe-node/blob/master/src/Webhooks.ts). The debugger must not say "Would verify".
+test('a header with a space after a comma is not reported as verifying', async ({ page }) => {
   await open(page)
   const t = now()
   await paste(page, BODY, `t=${t}, v1=${sign(BODY, SECRET, t)}`, SECRET)
   await expect(finding(page, 'Whitespace inside the header')).toBeVisible()
+  await expect(finding(page, 'Whitespace inside the header')).toContainText('No signatures found with expected scheme')
+  await expect(finding(page, 'Whitespace inside the header')).toHaveClass(/bad/)
+  await expect(verdict(page)).toHaveText('Would reject')
+  await expect(verdict(page)).toHaveClass(/bad/)
+  await expect(page.locator('.finding.good')).toHaveCount(0)
+})
+
+test('whitespace in the header: entries stripe-node cannot read are rejected, padding it tolerates still verifies', async ({ page }) => {
+  await open(page)
+  const t = now()
+  const v1 = sign(BODY, SECRET, t)
+  const cases: [string, string, 'Would verify' | 'Would reject'][] = [
+    ['tab after the comma', `t=${t},\tv1=${v1}`, 'Would reject'],
+    ['space before the = of v1', `t=${t},v1 =${v1}`, 'Would reject'],
+    ['space after the = of v1', `t=${t},v1= ${v1}`, 'Would reject'],
+    ['space before the = of t', `t =${t},v1=${v1}`, 'Would reject'],
+    ['t after a space', `v1=${v1}, t=${t}`, 'Would reject'],
+    ['space before the comma after v1', `t=${t},v1=${v1} ,v0=00`, 'Would reject'],
+    ['space after the = of t', `t= ${t},v1=${v1}`, 'Would verify'],
+    ['space before the comma after t', `t=${t} ,v1=${v1}`, 'Would verify'],
+    ['canonical', `t=${t},v1=${v1}`, 'Would verify'],
+  ]
+  for (const [name, header, expected] of cases) {
+    await paste(page, BODY, header, SECRET)
+    await expect(verdict(page), name).toHaveText(expected)
+    if (expected === 'Would reject') await expect(finding(page, 'Whitespace inside the header'), name).toBeVisible()
+    else await expect(finding(page, 'Whitespace inside the header'), name).toHaveCount(0)
+  }
+})
+
+test('a secret roll with a space before the second v1 reads only the first v1, as stripe-node does', async ({ page }) => {
+  await open(page)
+  const t = now()
+  const mine = sign(BODY, SECRET, t)
+  const theirs = sign(BODY, OTHER_SECRET, t)
+  await paste(page, BODY, `t=${t},v1=${mine}, v1=${theirs}`, SECRET)
+  await expect(verdict(page)).toHaveText('Would verify')
+  await expect(finding(page, 'Whitespace inside the header')).toHaveClass(/warn/)
+  await paste(page, BODY, `t=${t},v1=${theirs}, v1=${mine}`, SECRET)
   await expect(verdict(page)).toHaveText('Would reject')
 })

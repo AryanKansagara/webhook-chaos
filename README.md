@@ -54,8 +54,8 @@ First time only: `npx playwright install chromium`. The E2E server port defaults
   test fails on any uncaught page error or request to an unexpected host. Nothing is ever sent to a real URL.
 - The debugger tests sign their vectors with `node:crypto` following the scheme in the Stripe docs; the docs do not
   print a complete body, secret and signature, so the header the docs do print is used only for what a header alone shows.
-- Tests marked `test.fail()` assert what a user should get for a bug that is filed as an issue (#2, #3, #4). They pass while the bug
-  exists and start failing when it is fixed, which is the cue to remove the marker.
+- A test for a bug that is filed as an issue and not yet fixed is marked `test.fail()`. It passes while the bug exists and starts failing
+  when the bug is fixed, which is the cue to remove the marker.
 - CI (`.github/workflows/ci.yml`, job `test`) runs install, build, unit tests and E2E on pull requests and pushes to `main`.
 - Only `main` is deployed to Vercel (`vercel.json` turns off branch previews); pull requests are checked by CI alone.
 

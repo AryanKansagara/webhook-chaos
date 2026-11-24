@@ -84,22 +84,33 @@ export interface ParsedHeader {
   meta: { secret?: string; destination?: string; payload?: string }
 }
 
-/** Same rules as stripe-node: split on `,` then `=`; keep every v1; ignore other schemes. */
+const META_KEYS = ['secret', 'destination', 'payload']
+
+/**
+ * Same rules as stripe-node's `parseHeader` (src/Webhooks.ts): split on `,`, split each item on `=`, and compare the key
+ * and the signature value exactly as written. Nothing is trimmed, so `t=1, v1=aa` (a space after the comma) has no v1 key
+ * at all. Only the timestamp value is trimmed (stripe-node reads it with parseInt, which skips leading whitespace).
+ * Keep every v1, ignore other schemes.
+ * The debugging entries are read the way stripe-node's `getSignatureDebugMetadata` reads them: split on `,` plus any
+ * whitespace, first value wins, over-long values are dropped.
+ */
 export function parseSignatureHeader(header: string): ParsedHeader {
   const out: ParsedHeader = { t: null, v1: [], v0: [], unknown: [], hasWhitespace: /\s/.test(header), meta: {} }
   for (const item of header.split(',')) {
-    const [rawKey, value = ''] = item.split('=')
-    const key = rawKey.trim()
-    const v = value.trim()
-    if (key === 't') out.t = /^\d+$/.test(v) ? Number(v) : null
-    else if (key === 'v1') out.v1.push(v)
-    else if (key === 'v0') out.v0.push(v)
-    else if (key === 'secret' || key === 'destination' || key === 'payload') {
-      // First value wins and over-long values are dropped, as in stripe-node's getSignatureDebugMetadata.
-      const full = item.slice(item.indexOf('=') + 1).trim()
-      const okPayload = key !== 'payload' || /^[0-9a-fA-F]{8}$/.test(full)
-      if (out.meta[key] === undefined && full && full.length <= 100 && okPayload) out.meta[key] = key === 'payload' ? full.toLowerCase() : full
-    } else if (key) out.unknown.push(key)
+    const [key, value = ''] = item.split('=')
+    if (key === 't') out.t = /^\d+$/.test(value.trim()) ? Number(value.trim()) : null
+    else if (key === 'v1') out.v1.push(value)
+    else if (key === 'v0') out.v0.push(value)
+    else if (key.trim() && !META_KEYS.includes(key.trim())) out.unknown.push(key)
+  }
+  for (const item of header.split(/,\s*/)) {
+    const eq = item.indexOf('=')
+    const key = item.slice(0, eq)
+    if (eq === -1 || (key !== 'secret' && key !== 'destination' && key !== 'payload')) continue
+    // First value wins and over-long values are dropped, as in stripe-node's getSignatureDebugMetadata.
+    const full = item.slice(eq + 1).trim()
+    const okPayload = key !== 'payload' || /^[0-9a-fA-F]{8}$/.test(full)
+    if (out.meta[key] === undefined && full && full.length <= 100 && okPayload) out.meta[key] = key === 'payload' ? full.toLowerCase() : full
   }
   return out
 }
