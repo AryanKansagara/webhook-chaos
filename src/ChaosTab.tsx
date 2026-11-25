@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { readRunReply } from './runReply.ts'
 import { buildScript } from './script.ts'
 import { CHECKS, SLOW_MS, type CheckId, type CheckResult, type Ledger, type RunResponse, type Verdict } from '../api/_lib/chaos.ts'
 
@@ -33,9 +34,8 @@ export function ChaosTab({ autorun }: { autorun: number }) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(t === 'url' ? { target: t, url, secret, checks: [...checks] } : { target: t, checks: [...checks] }),
       })
-      const json = await res.json().catch(() => ({ error: `Unexpected response (HTTP ${res.status}).` }))
-      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`)
-      setReport(json as RunResponse)
+      const json: unknown = await res.json().catch(() => undefined)
+      setReport(readRunReply(res, json))
     } catch (e) {
       setError((e as Error).message)
     } finally {
