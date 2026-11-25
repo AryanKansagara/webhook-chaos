@@ -110,6 +110,88 @@ test('header debug metadata: first value wins, bad payload hash ignored, v1 unto
   assert.deepEqual(parseSignatureHeader('t=1,v1=aa,payload=xyz').meta, {})
 })
 
+// The reference below is stripe-node's parseHeader, copied from src/Webhooks.ts at commit dd924299e2517e2b4e3b571aa7f20f295289ea71
+// (https://github.com/stripe/stripe-node/blob/dd924299e2517e2b4e3b571aa7f20f295289ea71/src/Webhooks.ts, MIT). It splits on ",",
+// splits each item on "=", and compares kv[0] to the scheme with ===: nothing is trimmed.
+function stripeNodeParseHeader(header: string, scheme = 'v1') {
+  return header.split(',').reduce<{ timestamp: number; signatures: (string | undefined)[] }>(
+    (accum, item) => {
+      const kv = item.split('=')
+      if (kv[0] === 't') accum.timestamp = parseInt(kv[1], 10)
+      if (kv[0] === scheme) accum.signatures.push(kv[1])
+      return accum
+    },
+    { timestamp: -1, signatures: [] },
+  )
+}
+
+const SIG = 'a'.repeat(64)
+const OTHER = 'b'.repeat(64)
+const HEADERS: [string, string][] = [
+  ['canonical', `t=1798765432,v1=${SIG}`],
+  ['a space after the comma', `t=1798765432, v1=${SIG}`],
+  ['spaces after every comma', `t=1798765432, v1=${SIG}, v0=${OTHER}`],
+  ['a space before a comma', `t=1798765432 ,v1=${SIG}`],
+  ['a space before the = of v1', `t=1798765432,v1 =${SIG}`],
+  ['a space after the = of v1', `t=1798765432,v1= ${SIG}`],
+  ['a space after the = of t', `t= 1798765432,v1=${SIG}`],
+  ['a space before the = of t', `t =1798765432,v1=${SIG}`],
+  ['v1 first, t after a space', `v1=${SIG}, t=1798765432`],
+  ['a tab after the comma', `t=1798765432,\tv1=${SIG}`],
+  ['a CRLF after the comma', `t=1798765432,\r\nv1=${SIG}`],
+  ['several spaces after the comma', `t=1798765432,    v1=${SIG}`],
+  ['rotation, both canonical', `t=1798765432,v1=${OTHER},v1=${SIG}`],
+  ['rotation, second after a space', `t=1798765432,v1=${OTHER}, v1=${SIG}`],
+  ['rotation, first after a space', `t=1798765432, v1=${SIG},v1=${OTHER}`],
+  ['uppercase keys', `T=1798765432,V1=${SIG}`],
+  ['empty, leading and trailing items', `,t=1798765432,,v1=${SIG},,`],
+  ['v1 without =', 't=1798765432,v1'],
+  ['v1 with an empty value', 't=1798765432,v1='],
+  ['a signature followed by =junk', `t=1798765432,v1=${SIG}=junk`],
+  ['two timestamps', `t=1,v1=${SIG},t=1798765432`],
+  ['no timestamp', `v1=${SIG}`],
+  ['garbage', '¯\\_(ツ)_/¯ ,,, ==='],
+]
+
+test('the header is read the way stripe-node reads it: keys and signatures are not trimmed', () => {
+  for (const [name, header] of HEADERS) {
+    const lib = stripeNodeParseHeader(header)
+    const p = parseSignatureHeader(header)
+    assert.deepEqual(p.v1, lib.signatures.map((x) => x ?? ''), name)
+    assert.equal(p.t, lib.timestamp === -1 || Number.isNaN(lib.timestamp) ? null : lib.timestamp, name)
+  }
+})
+
+test('padding makes an entry unreadable, and padded keys are reported as unknown', () => {
+  assert.deepEqual(parseSignatureHeader(`t=1798765432, v1=${SIG}`).v1, [])
+  assert.deepEqual(parseSignatureHeader(`t=1798765432, v1=${SIG}`).unknown, [' v1'])
+  assert.equal(parseSignatureHeader(`t =1798765432,v1=${SIG}`).t, null)
+  assert.deepEqual(parseSignatureHeader(`t=1798765432,v1=${OTHER}, v1=${SIG}`).v1, [OTHER])
+  assert.deepEqual(parseSignatureHeader(`t=1798765432,v1= ${SIG}`).v1, [` ${SIG}`])
+  // The timestamp value tolerates padding (parseInt skips leading whitespace and stops at the first non-digit).
+  assert.equal(parseSignatureHeader(`t= 1798765432 ,v1=${SIG}`).t, 1798765432)
+})
+
+test('debug entries are still read after a space, as stripe-node reads them (it splits on "," plus whitespace)', () => {
+  const p = parseSignatureHeader(`t=1,v1=${SIG}, secret=whsec_****abcd, destination=we_1,payload=a25aefc6`)
+  assert.deepEqual(p.meta, { secret: 'whsec_****abcd', destination: 'we_1', payload: 'a25aefc6' })
+  assert.deepEqual(p.v1, [SIG])
+  assert.deepEqual(p.unknown, [])
+  // A key with padding of its own is not a debug key; an item without = has no value.
+  assert.deepEqual(parseSignatureHeader('t=1,v1=aa,secret =x,payload').meta, {})
+})
+
+test('verifySignature rejects a header that stripe-node cannot read, with the library\'s own reason', async () => {
+  const s = 'whsec_abcdefghijklmnopqrstuvwxyz012345'
+  const t = 1798765432
+  const good = (await signatureHeader('{}', [s], t)).split(',').find((e) => e.startsWith('v1='))!
+  assert.equal((await verifySignature('{}', `t=${t},${good}`, s, { now: t })).ok, true)
+  const spaced = await verifySignature('{}', `t=${t}, ${good}`, s, { now: t })
+  assert.deepEqual(spaced.ok === false && spaced.reason, 'no_signature')
+  const noT = await verifySignature('{}', `${good}, t=${t}`, s, { now: t })
+  assert.deepEqual(noT.ok === false && noT.reason, 'malformed')
+})
+
 const secret = 'whsec_test_0123456789abcdefABCDEF'
 test('secret rolling: a handler that reads only the first v1 drops authentic events', async () => {
   for (const [id, verdict] of [['naive', 'fail'], ['robust', 'pass']] as const) {
