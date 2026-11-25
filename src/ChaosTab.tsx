@@ -166,7 +166,7 @@ function Report({ report }: { report: RunResponse }) {
   const graded = report.checks.filter((c) => c.verdict !== 'skip')
   const count = (v: Verdict) => graded.filter((c) => c.verdict === v).length
   const all = report.checks.flatMap((c) => c.deliveries).filter((d) => d.status !== null)
-  const slowest = Math.max(0, ...all.map((d) => d.ms))
+  const slowest = all.length ? Math.max(...all.map((d) => d.ms)) : null
   const tone = report.score >= 90 ? 'good' : report.score >= 60 ? 'warn' : 'bad'
   return (
     <section aria-live="polite">
@@ -178,7 +178,7 @@ function Report({ report }: { report: RunResponse }) {
         </div>
         <div className="stat"><div className="label">Passed</div><div className="value">{count('pass')}<span className="muted small"> / {graded.length}</span></div></div>
         <div className="stat"><div className="label">Failed · warnings</div><div className="value">{count('fail')} · {count('warn')}</div></div>
-        <div className="stat"><div className="label">Slowest response</div><div className={`value${slowest >= SLOW_MS ? ' tone-warn' : ''}`}>{slowest} ms</div></div>
+        <div className="stat"><div className="label">Slowest response</div><div className={`value${slowest !== null && slowest >= SLOW_MS ? ' tone-warn' : ''}`}>{slowest === null ? '—' : `${slowest} ms`}</div></div>
       </div>
 
       {report.demo && <LedgerTable demo={report.demo} />}
