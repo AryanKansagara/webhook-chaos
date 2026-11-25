@@ -100,6 +100,25 @@ test('latency check flags slow responses; unreachable endpoints stop after 3 fai
   assert.equal(calls, 3)
 })
 
+test('response time is skipped, not passed, when no delivery got an answer', async () => {
+  const refused = 'connect ECONNREFUSED'
+  const down: Send = async () => ({ status: null, ms: 0, body: '', error: refused })
+  const r = await runChaos({ secret, checks: ['baseline', 'latency'], send: down })
+  assert.deepEqual(verdicts(r), { baseline: 'fail', latency: 'skip' })
+  assert.equal(r.score, 0)
+  const all = await runChaos({ secret, checks: CHECK_IDS, send: down })
+  assert.equal(all.checks.find((c) => c.id === 'latency')!.verdict, 'skip')
+  assert.equal(all.checks.some((c) => c.verdict === 'pass' || c.verdict === 'warn'), false)
+  assert.equal(all.score, 0)
+  // Timeouts are still a failure of their own, and a single answer is enough to time.
+  const hung: Send = async () => ({ status: null, ms: 10_000, body: '', error: 'Timed out after 10s' })
+  assert.equal(verdicts(await runChaos({ secret, checks: ['baseline', 'latency'], send: hung })).latency, 'fail')
+  let n = 0
+  const oneAnswer: Send = async () => (n++ === 0 ? { status: 200, ms: 12, body: '' } : { status: null, ms: 0, body: '', error: refused })
+  const some = await runChaos({ secret, checks: ['baseline', 'latency'], send: oneAnswer })
+  assert.equal(some.checks.find((c) => c.id === 'latency')!.summary, 'Slowest response 12 ms across 1 deliveries.')
+})
+
 test('isBlockedIp covers private, loopback, link-local, CGNAT, metadata and mapped IPv6', () => {
   for (const ip of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0',
     '::1', '::', 'fe80::1', 'fd00::1', '::ffff:127.0.0.1', '::ffff:a9fe:a9fe', '64:ff9b::7f00:1', '2002:7f00:1::', 'not-an-ip'])

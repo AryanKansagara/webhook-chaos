@@ -241,21 +241,24 @@ test('your endpoint that is down: errors are shown per delivery, the run stops e
   await expect(rows.first().locator('.badge')).toHaveText('ERR')
   await expect(rows.first()).toContainText('connect ECONNREFUSED')
   await expect(rows.last()).toContainText('Skipped: endpoint unreachable')
-  await expect(stat(page, 'Score')).toContainText('0')
-  // Every delivery-based check failed. (The response-time check is covered by the test.fail below.)
+  await expect(stat(page, 'Score')).toHaveText(/^0 \/ 100$/)
+  // Every delivery-based check failed. Nothing answered, so there is no response time to judge: that check is skipped, not passed.
   for (const id of ALL.filter((i) => i !== 'latency')) expect(await verdictOf(page, id), id).toBe('FAIL')
+  expect(await verdictOf(page, 'latency')).toBe('SKIP')
+  await expect(finding(page, 'Response time').locator('.summary')).toHaveText('No response received from the endpoint, so there is nothing to time.')
+  await expect(stat(page, 'Passed')).toHaveText('0 / 9')
+  await expect(page.locator('.badge.good')).toHaveCount(0)
 })
 
-// BUG (#3): with nothing answering, "Response time" still says PASS ("Slowest response 0 ms across 0 deliveries")
-// and the score is 10 instead of 0. This asserts the behaviour a user should get; it passes while the bug exists and
-// starts failing once it is fixed, which is the cue to remove the marker.
-test.fail('your endpoint that is down: the response-time check must not pass and the score must be 0', async ({ page, api }) => {
+test('your endpoint that is down: the response-time check alone with the baseline is skipped and the score is 0', async ({ page, api }) => {
   await fillEndpoint(page)
   api.endpoint = async () => ({ status: null, ms: 0, body: '', error: 'connect ECONNREFUSED' })
+  await onlyChecks(page, ['baseline', 'latency'])
   await runButton(page).click()
   await expect(stat(page, 'Score')).toBeVisible()
-  expect(await verdictOf(page, 'latency')).not.toBe('PASS')
-  await expect(stat(page, 'Score')).toContainText('0 / 100')
+  expect(await verdicts(page, ['baseline', 'latency'])).toEqual({ baseline: 'FAIL', latency: 'SKIP' })
+  await expect(stat(page, 'Score')).toHaveText(/^0 \/ 100$/)
+  await expect(stat(page, 'Passed')).toHaveText('0 / 1')
 })
 
 test('your endpoint that answers 500 to a bad signature gets a warning, and 302 on valid events a hint', async ({ page, api }) => {
