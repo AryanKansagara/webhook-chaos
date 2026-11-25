@@ -262,3 +262,23 @@ test('a secret roll with a space before the second v1 reads only the first v1, a
   await paste(page, BODY, `t=${t},v1=${theirs}, v1=${mine}`, SECRET)
   await expect(verdict(page)).toHaveText('Would reject')
 })
+
+test('a timestamp too large to be a date is diagnosed instead of blanking the page', async ({ page }) => {
+  await open(page)
+  // Dates end at t = 8640000000000; toISOString() throws for anything later.
+  const cases: [string, string][] = [
+    ['99999999999999', 'not a valid date'],
+    ['8640000000001', 'not a valid date'],
+    ['9'.repeat(400), 'not a valid date'],
+    ['8640000000000', '+275760-09-13T00:00:00Z'],
+    ['0', '1970-01-01T00:00:00Z'],
+  ]
+  for (const [t, shown] of cases) {
+    await paste(page, '{}', `t=${t},v1=aa`, 'whsec_sample_secret_0123456789abcdef')
+    await expect(page.getByText(/1 v1 · 2 body bytes/), t).toContainText(`(${shown})`)
+    await expect(verdict(page), t).toHaveText('Would reject')
+    await expect(finding(page, 'Signature does not match'), t).toBeVisible()
+    await expect(finding(page, /^Timestamp is .* (old|in the future)/), t).toBeVisible()
+    await expect(page.locator('.finding.good'), t).toHaveCount(0)
+  }
+})
