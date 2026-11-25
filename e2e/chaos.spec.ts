@@ -241,21 +241,24 @@ test('your endpoint that is down: errors are shown per delivery, the run stops e
   await expect(rows.first().locator('.badge')).toHaveText('ERR')
   await expect(rows.first()).toContainText('connect ECONNREFUSED')
   await expect(rows.last()).toContainText('Skipped: endpoint unreachable')
-  await expect(stat(page, 'Score')).toContainText('0')
-  // Every delivery-based check failed. (The response-time check is covered by the test.fail below.)
+  await expect(stat(page, 'Score')).toHaveText(/^0 \/ 100$/)
+  // Every delivery-based check failed. Nothing answered, so there is no response time to judge: that check is skipped, not passed.
   for (const id of ALL.filter((i) => i !== 'latency')) expect(await verdictOf(page, id), id).toBe('FAIL')
+  expect(await verdictOf(page, 'latency')).toBe('SKIP')
+  await expect(finding(page, 'Response time').locator('.summary')).toHaveText('No response received from the endpoint, so there is nothing to time.')
+  await expect(stat(page, 'Passed')).toHaveText('0 / 9')
+  await expect(page.locator('.badge.good')).toHaveCount(0)
 })
 
-// BUG (#3): with nothing answering, "Response time" still says PASS ("Slowest response 0 ms across 0 deliveries")
-// and the score is 10 instead of 0. This asserts the behaviour a user should get; it passes while the bug exists and
-// starts failing once it is fixed, which is the cue to remove the marker.
-test.fail('your endpoint that is down: the response-time check must not pass and the score must be 0', async ({ page, api }) => {
+test('your endpoint that is down: the response-time check alone with the baseline is skipped and the score is 0', async ({ page, api }) => {
   await fillEndpoint(page)
   api.endpoint = async () => ({ status: null, ms: 0, body: '', error: 'connect ECONNREFUSED' })
+  await onlyChecks(page, ['baseline', 'latency'])
   await runButton(page).click()
   await expect(stat(page, 'Score')).toBeVisible()
-  expect(await verdictOf(page, 'latency')).not.toBe('PASS')
-  await expect(stat(page, 'Score')).toContainText('0 / 100')
+  expect(await verdicts(page, ['baseline', 'latency'])).toEqual({ baseline: 'FAIL', latency: 'SKIP' })
+  await expect(stat(page, 'Score')).toHaveText(/^0 \/ 100$/)
+  await expect(stat(page, 'Passed')).toHaveText('0 / 1')
 })
 
 test('your endpoint that answers 500 to a bad signature gets a warning, and 302 on valid events a hint', async ({ page, api }) => {
@@ -297,6 +300,14 @@ const API_FAILURES: [string, NonNullable<Api['override']>, RegExp][] = [
   ['429 rate limit', { status: 429, body: JSON.stringify({ error: 'Too many runs. Try again in a minute.' }) }, /Too many runs\. Try again in a minute\./],
   ['502 with an HTML page', { status: 502, contentType: 'text/html', body: '<html>Bad gateway</html>' }, /^Unexpected response \(HTTP 502\)\.$/],
   ['error without a message', { status: 503, body: '{}' }, /^HTTP 503$/],
+  ['200 that is not JSON', { status: 200, contentType: 'text/html', body: '<!doctype html><title>x</title>' }, /^Unexpected response \(HTTP 200\)\.$/],
+  ['200 with an empty body', { status: 200, body: '' }, /^Unexpected response \(HTTP 200\)\.$/],
+  ['200 with JSON null', { status: 200, body: 'null' }, /^Unexpected response \(HTTP 200\)\.$/],
+  ['200 with JSON that is not a report', { status: 200, body: '{"score":1}' }, /^Unexpected response \(HTTP 200\)\.$/],
+  ['200 with a report whose checks are not a list', { status: 200, body: JSON.stringify({ target: 'robust', score: 100, checks: 'none' }) }, /^Unexpected response \(HTTP 200\)\.$/],
+  ['200 with an unknown check id', { status: 200, body: JSON.stringify({ target: 'robust', score: 0, checks: [{ id: 'nope', title: 'x', verdict: 'fail', summary: 'x', deliveries: [] }] }) }, /^Unexpected response \(HTTP 200\)\.$/],
+  ['200 carrying an error message', { status: 200, body: JSON.stringify({ error: 'Maintenance window.' }) }, /^Maintenance window\.$/],
+  ['500 with JSON null', { status: 500, body: 'null' }, /^HTTP 500$/],
   ['dropped connection', 'abort', /fetch|network|Failed/i],
 ]
 for (const [name, override, message] of API_FAILURES) {
@@ -317,17 +328,6 @@ for (const [name, override, message] of API_FAILURES) {
     await expect(alert(page)).toHaveCount(0)
   })
 }
-
-// BUG (#2): a reply that is HTTP 200 but not JSON (a host that answers every path with its index page, for
-// example) is stored as the report, and the page crashes to a blank screen instead of showing an error. This
-// asserts the behaviour a user should get; see the note on the test above.
-test.fail('API failure (200 that is not JSON) shows a message and no results', async ({ page, api }) => {
-  api.override = { status: 200, contentType: 'text/html', body: '<!doctype html><title>x</title>' }
-  await pickTarget(page, /Robust demo/)
-  await runButton(page).click()
-  await expect(alert(page)).toHaveText(/^Unexpected response \(HTTP 200\)\.$/)
-  await expect(stat(page, 'Score')).toHaveCount(0)
-})
 
 // These go through the real handler; its rejections happen before any DNS lookup or connection.
 const BAD_INPUT: [string, string, string, RegExp][] = [

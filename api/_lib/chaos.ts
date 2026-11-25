@@ -207,6 +207,7 @@ export async function runChaos(opts: RunOptions): Promise<RunResult> {
     const max = Math.max(0, ...timed.map((d) => d.ms))
     if (!all.length) add('latency', 'skip', 'No deliveries to measure.', [])
     else if (timeouts.length) add('latency', 'fail', `${timeouts.length} deliveries timed out. Acknowledge first, then process asynchronously.`, timeouts)
+    else if (!timed.length) add('latency', 'skip', 'No response received from the endpoint, so there is nothing to time.', [])
     else if (slow.length) add('latency', 'warn', `${slow.length} of ${timed.length} responses took ≥ ${SLOW_MS / 1000}s (slowest ${max} ms). Move slow work (emails, API calls) to a queue.`, slow)
     else add('latency', 'pass', `Slowest response ${max} ms across ${timed.length} deliveries.`, [])
   }
