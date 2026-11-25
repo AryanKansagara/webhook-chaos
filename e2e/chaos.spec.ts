@@ -279,6 +279,49 @@ test('your endpoint that answers 500 to a bad signature gets a warning, and 302 
   await expect(finding(page, 'Valid delivery, in order').locator('.summary')).toContainText('Stripe treats redirects as failed deliveries')
 })
 
+test('the "Slowest response" tile shows a dash when nothing answered, and the Markdown report agrees', async ({ page, api }) => {
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (s: string) => { (window as unknown as { copied: string }).copied = s } } }))
+  const markdown = async () => {
+    await page.getByRole('button', { name: 'Copy report as Markdown' }).click()
+    return page.evaluate(() => (window as unknown as { copied: string }).copied)
+  }
+  const run = async (endpoint: Endpoint) => {
+    api.endpoint = endpoint
+    await runButton(page).click()
+    await expect(stat(page, 'Score')).toBeVisible()
+  }
+  await fillEndpoint(page)
+  await onlyChecks(page, ['baseline', 'latency'])
+
+  await run(async () => ({ status: null, ms: 0, body: '', error: 'connect ECONNREFUSED' }))
+  await expect(stat(page, 'Slowest response')).toHaveText('—')
+  const down = await markdown()
+  expect(down).toContain('| Response time | SKIP | No response received from the endpoint, so there is nothing to time. |')
+  expect(down).not.toMatch(/\d ms/)
+
+  // A timeout is not a response either, however long it took.
+  await run(async () => ({ status: null, ms: 10_000, body: '', error: 'Timed out after 10s' }))
+  await expect(stat(page, 'Slowest response')).toHaveText('—')
+  await expect(stat(page, 'Slowest response')).not.toHaveClass(/tone-warn/)
+
+  // Real responses keep their milliseconds, including one that rounds to 0 and an error status.
+  await run(async () => ({ status: 200, ms: 0, body: 'ok' }))
+  await expect(stat(page, 'Slowest response')).toHaveText('0 ms')
+  expect(await markdown()).toContain('Slowest response 0 ms across 5 deliveries.')
+  await run(async () => ({ status: 500, ms: 12, body: '' }))
+  await expect(stat(page, 'Slowest response')).toHaveText('12 ms')
+
+  // One answer among failures is timed.
+  let n = 0
+  await run(async () => (n++ === 1 ? { status: 200, ms: 7, body: 'ok' } : { status: null, ms: 0, body: '', error: 'connect ECONNREFUSED' }))
+  await expect(stat(page, 'Slowest response')).toHaveText('7 ms')
+
+  // Nothing sent at all: the response-time check alone has no deliveries.
+  await onlyChecks(page, ['latency'])
+  await run(async () => ({ status: 200, ms: 3, body: 'ok' }))
+  await expect(stat(page, 'Slowest response')).toHaveText('—')
+})
+
 // ---------------------------------------------------------------- failures and bad input
 
 test('while a run is in flight the button is disabled and the previous report is gone', async ({ page, api }) => {
