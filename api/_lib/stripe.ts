@@ -76,6 +76,8 @@ export async function signatureHeader(payload: string, secrets: string[], t: num
 
 export interface ParsedHeader {
   t: number | null
+  /** The last `t=` value exactly as written; null when the header has no `t` key. */
+  tRaw: string | null
   v1: string[]
   v0: string[]
   unknown: string[]
@@ -89,17 +91,23 @@ const META_KEYS = ['secret', 'destination', 'payload']
 /**
  * Same rules as stripe-node's `parseHeader` (src/Webhooks.ts): split on `,`, split each item on `=`, and compare the key
  * and the signature value exactly as written. Nothing is trimmed, so `t=1, v1=aa` (a space after the comma) has no v1 key
- * at all. Only the timestamp value is trimmed (stripe-node reads it with parseInt, which skips leading whitespace).
+ * at all. Only the timestamp is read leniently, with parseInt: leading whitespace and a sign are accepted and anything after
+ * the digits is ignored. One deliberate difference: stripe-node keeps NaN (`t=abc`) and goes on to check a signature over
+ * "NaN.<body>"; here `t` is null, so a header without a readable timestamp never verifies.
  * Keep every v1, ignore other schemes.
  * The debugging entries are read the way stripe-node's `getSignatureDebugMetadata` reads them: split on `,` plus any
  * whitespace, first value wins, over-long values are dropped.
  */
 export function parseSignatureHeader(header: string): ParsedHeader {
-  const out: ParsedHeader = { t: null, v1: [], v0: [], unknown: [], hasWhitespace: /\s/.test(header), meta: {} }
+  const out: ParsedHeader = { t: null, tRaw: null, v1: [], v0: [], unknown: [], hasWhitespace: /\s/.test(header), meta: {} }
   for (const item of header.split(',')) {
     const [key, value = ''] = item.split('=')
-    if (key === 't') out.t = /^\d+$/.test(value.trim()) ? Number(value.trim()) : null
-    else if (key === 'v1') out.v1.push(value)
+    if (key === 't') {
+      const t = parseInt(value, 10)
+      // -1 is stripe-node's own "no timestamp" marker, so it rejects t=-1 as missing.
+      out.t = Number.isNaN(t) || t === -1 ? null : t
+      out.tRaw = value
+    } else if (key === 'v1') out.v1.push(value)
     else if (key === 'v0') out.v0.push(value)
     else if (key.trim() && !META_KEYS.includes(key.trim())) out.unknown.push(key)
   }
