@@ -87,7 +87,13 @@ export async function diagnose(input: { body: string; header: string; secrets: s
   const result = (expected: string | null, match: boolean) => ({ parsed, expected, match, findings, bodyHash })
 
   if (!header) return findings.push({ level: 'bad', title: 'No Stripe-Signature header', detail: 'Paste the value of the Stripe-Signature request header. If your server never received one, the request did not come from Stripe (or a proxy stripped it).' }), result(null, false)
-  if (parsed.t === null) findings.push({ level: 'bad', title: 'No timestamp (t=) in header', detail: 'A Stripe-Signature header looks like t=1700000000,v1=5257a8…' })
+  const tText = JSON.stringify(parsed.tRaw ?? '')
+  const notNumber = parsed.tRaw !== null && Number.isNaN(parseInt(parsed.tRaw, 10))
+  if (notNumber) findings.push({ level: 'bad', title: 'Timestamp (t=) is not a number', detail: `The header has t=${tText}. A Stripe-Signature header looks like t=1700000000,v1=5257a8…` })
+  else if (parsed.t === null && parsed.tRaw !== null) findings.push({ level: 'bad', title: 'Timestamp (t=) is -1', detail: 'stripe-node uses -1 to mean "no timestamp", so constructEvent throws "Unable to extract timestamp and signatures from header".' })
+  else if (parsed.t !== null && !/^\d+$/.test((parsed.tRaw ?? '').trim()))
+    findings.push({ level: 'warn', title: 'Timestamp (t=) is not plain digits', detail: `The header has t=${tText}. stripe-node reads it with parseInt as ${parsed.t} and goes on; other libraries may refuse it. Stripe writes only digits, so something changed the header: pass the value through untouched.` })
+  if (parsed.tRaw === null) findings.push({ level: 'bad', title: 'No timestamp (t=) in header', detail: 'A Stripe-Signature header looks like t=1700000000,v1=5257a8…' })
   if (!parsed.v1.length)
     findings.push({ level: 'bad', title: 'No v1 signature in header', detail: parsed.v0.length ? 'Only v0 is present. v0 is a fake scheme Stripe adds to test events; only v1 is valid.' : 'Expected one or more v1=<hex> entries.' })
   if (parsed.v1.length > 1)
@@ -101,7 +107,7 @@ export async function diagnose(input: { body: string; header: string; secrets: s
       level: parsed.t === null || !parsed.v1.length ? 'bad' : 'warn',
       title: 'Whitespace inside the header',
       detail: `stripe-node does not trim header items, so a key written as ${named} is not the key it looks like, and the entry is ignored. ${
-        parsed.t === null ? 'No timestamp is read, so constructEvent throws "Unable to extract timestamp and signatures from header".'
+        parsed.t === null && !notNumber ? 'No timestamp is read, so constructEvent throws "Unable to extract timestamp and signatures from header".'
         : !parsed.v1.length ? 'No v1 signature is read, so constructEvent throws "No signatures found with expected scheme".'
         : 'The remaining entries are still read.'} A space after a comma usually comes from a reformatted copy of the header; pass the value through untouched.`,
     })

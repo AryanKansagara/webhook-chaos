@@ -251,6 +251,27 @@ test('whitespace in the header: entries stripe-node cannot read are rejected, pa
   }
 })
 
+test('a timestamp with a sign or trailing characters gets the verdict stripe-node gives, and a note', async ({ page }) => {
+  await open(page)
+  const t = now()
+  const v1 = sign(BODY, SECRET, t)
+  for (const raw of [`${t}abc`, `+${t}`]) {
+    await paste(page, BODY, `t=${raw},v1=${v1}`, SECRET)
+    await expect(verdict(page), raw).toHaveText('Would verify')
+    await expect(finding(page, 'Timestamp (t=) is not plain digits'), raw).toHaveClass(/warn/)
+    await expect(page.getByText(/1 v1 · \d+ body bytes/), raw).toContainText(`t=${t} (`)
+  }
+  await paste(page, BODY, `t=abc,v1=${v1}`, SECRET)
+  await expect(verdict(page)).toHaveText('Would reject')
+  await expect(finding(page, 'Timestamp (t=) is not a number')).toBeVisible()
+  // Signs and suffixes now parse, so values beyond the date range must still render.
+  for (const raw of ['99999999999999abc', '-99999999999999']) {
+    await paste(page, BODY, `t=${raw},v1=${v1}`, SECRET)
+    await expect(page.getByText('(not a valid date)'), raw).toBeVisible()
+    await expect(verdict(page), raw).toHaveText('Would reject')
+  }
+})
+
 test('a secret roll with a space before the second v1 reads only the first v1, as stripe-node does', async ({ page }) => {
   await open(page)
   const t = now()

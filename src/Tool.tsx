@@ -64,6 +64,12 @@ const EXAMPLES: [Example, string][] = [
   ['stale', 'Replayed an hour later'],
 ]
 
+/** A Unix timestamp as UTC text. Dates end at year 275760, and toISOString() throws past that. */
+function utc(t: number): string {
+  const d = new Date(t * 1000)
+  return Number.isNaN(d.getTime()) ? 'not a valid date' : d.toISOString().replace('.000', '')
+}
+
 function DebuggerTab() {
   const [body, setBody] = useState('')
   const [header, setHeader] = useState('')
@@ -168,7 +174,7 @@ function DebuggerTab() {
             </p>
           )}
           <p className="muted small mono">
-            {result.parsed.t != null && <>t={result.parsed.t} ({new Date(result.parsed.t * 1000).toISOString().replace('.000', '')}) · </>}
+            {result.parsed.t != null && <>t={result.parsed.t} ({utc(result.parsed.t)}) · </>}
             {result.parsed.v1.length} v1 · {new TextEncoder().encode(body).length} body bytes · SHA-256 ends in {result.bodyHash}
             {result.parsed.meta.destination && <> · destination {result.parsed.meta.destination}</>}
           </p>
