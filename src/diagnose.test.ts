@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { buildScenario, serialize, signatureHeader } from '../api/_lib/stripe.ts'
+import { buildScenario, hmacHex, serialize, signatureHeader } from '../api/_lib/stripe.ts'
 import { diagnose } from './diagnose.ts'
 
 const secret = 'whsec_debugger_0123456789abcdef'
@@ -96,4 +96,44 @@ test('a v1 value with whitespace around it does not match, and says so', async (
   const d = await diagnose({ body, header: `t=${t},v1=${v1} ,v0=ab`, secrets: secret, now })
   assert.equal(d.match, false)
   assert.ok(d.findings.some((f) => f.title === 'Whitespace inside the header' && f.level === 'warn'))
+})
+
+// stripe-node reads t with parseInt(value, 10); see api/_lib/schema.test.ts for the comparison with its parser.
+test('a timestamp stripe-node reads with parseInt gets the library\'s verdict, with a note', async () => {
+  const v1 = (await signatureHeader(body, [secret], now, false)).split('v1=')[1]
+  for (const t of [`${now}abc`, `+${now}`, `${now}.5`, `0${now}x`, `${now} z`]) {
+    const d = await diagnose({ body, header: `t=${t},v1=${v1}`, secrets: secret, now })
+    assert.equal(d.match, true, `${t}: ${titles(d)}`)
+    assert.equal(d.findings.find((f) => f.title === 'Timestamp (t=) is not plain digits')!.level, 'warn')
+    // Still bound by the tolerance and by the signature.
+    assert.equal((await diagnose({ body, header: `t=${t},v1=${v1}`, secrets: secret, now: now + 301 })).match, false)
+    assert.equal((await diagnose({ body: body + ' ', header: `t=${t},v1=${v1}`, secrets: secret, now })).match, false)
+  }
+  for (const t of [`${now}`, ` ${now} `]) {
+    const d = await diagnose({ body, header: `t=${t},v1=${v1}`, secrets: secret, now })
+    assert.equal(d.match, true)
+    assert.doesNotMatch(titles(d), /Timestamp \(t=\)/)
+  }
+})
+
+test('an unreadable or negative timestamp never verifies, whatever was signed', async () => {
+  const cases: [string, string, RegExp][] = [
+    ['abc', 'NaN', /^Timestamp \(t=\) is not a number$/],
+    ['', 'NaN', /^Timestamp \(t=\) is not a number$/],
+    ['Infinity', 'NaN', /^Timestamp \(t=\) is not a number$/],
+    ['-1', '-1', /^Timestamp \(t=\) is -1$/],
+    ['-5', '-5', /^Timestamp \(t=\) is not plain digits$/],
+    ['0x10', '0', /^Timestamp \(t=\) is not plain digits$/],
+    ['1e10', '1', /^Timestamp \(t=\) is not plain digits$/],
+  ]
+  for (const [t, signed, title] of cases) {
+    const d = await diagnose({ body, header: `t=${t},v1=${await hmacHex(secret, `${signed}.${body}`)}`, secrets: secret, now })
+    assert.equal(d.match, false, t)
+    assert.ok(d.findings.some((f) => title.test(f.title)), `${t}: ${titles(d)}`)
+    assert.doesNotMatch(titles(d), /No timestamp/, t)
+  }
+  // The whitespace finding names the error the library would throw: NaN is not its "missing" marker.
+  const nan = await diagnose({ body, header: 't=abc, v1=aa', secrets: secret, now })
+  assert.match(nan.findings.find((f) => f.title === 'Whitespace inside the header')!.detail, /No signatures found with expected scheme/)
+  assert.match(titles(await diagnose({ body, header: 'v1=aa', secrets: secret, now })), /No timestamp \(t=\) in header/)
 })

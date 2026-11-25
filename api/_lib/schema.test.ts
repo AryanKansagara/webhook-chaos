@@ -150,6 +150,11 @@ const HEADERS: [string, string][] = [
   ['a signature followed by =junk', `t=1798765432,v1=${SIG}=junk`],
   ['two timestamps', `t=1,v1=${SIG},t=1798765432`],
   ['no timestamp', `v1=${SIG}`],
+  ...['1798765432abc', '+1798765432', '1798765432.9', '1e10', '0x10', '-5', '-1', '-1abc', '--5', '0', '007', '', 'abc', 'NaN', 'Infinity', '１７',
+    '99999999999999', '9'.repeat(400), '\u00a01798765432'].map((t): [string, string] => [`t=${t}`, `t=${t},v1=${SIG}`]),
+  ['t without =', `t,v1=${SIG}`],
+  ['a readable timestamp, then an unreadable one', `t=1798765432,t=abc,v1=${SIG}`],
+  ['an unreadable timestamp, then a readable one', `t=abc,t=1798765432,v1=${SIG}`],
   ['garbage', '¯\\_(ツ)_/¯ ,,, ==='],
 ]
 
